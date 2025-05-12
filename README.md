@@ -1,4 +1,5 @@
 # Battlesnake Python Starter Project
+**Teammitglied**Henrik Rdatke 223201707
 
 An official Battlesnake template written in Python. Get started at [play.battlesnake.com](https://play.battlesnake.com).
 
