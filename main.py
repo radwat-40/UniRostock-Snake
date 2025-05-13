@@ -39,10 +39,14 @@ def end(game_state: typing.Dict):
     print("GAME OVER\n")
 
 
+
 # move is called on every turn and returns your next move
 # Valid moves are "up", "down", "left", or "right"
 # See https://docs.battlesnake.com/api/example-move for available data
 def move(game_state: typing.Dict) -> typing.Dict:
+    board_width = game_state['board']['width'] #definieren der breite des Spielfeldes um später dareuf zurük zu greifen HR
+    board_height = game_state['board']['height'] #definieren der höhe HR
+
 
     is_move_safe = {"up": True, "down": True, "left": True, "right": True}
 
@@ -61,10 +65,22 @@ def move(game_state: typing.Dict) -> typing.Dict:
 
     elif my_neck["y"] > my_head["y"]:  # Neck is above head, don't move up
         is_move_safe["up"] = False
+    
 
-    # TODO: Step 1 - Prevent your Battlesnake from moving out of bounds
-    # board_width = game_state['board']['width']
-    # board_height = game_state['board']['height']
+
+    # TODO: Step 1 - Prevent your Battlesnake from moving out of bounds (done)
+    #hier wird definiert, dass die schlange nicht in den Rend des spielfeldes "fährt"
+    elif my_head["x"] == 0: 
+        is_move_safe["left"] = False  
+    
+    elif my_head["x"] == board_width -1: 
+        is_move_safe["right"] = False
+
+    elif my_head["y"] == 0: 
+        is_move_safe["up"] = False
+    
+    elif my_head["y"] == board_height -1: 
+        is_move_safe["down"] = False
 
     # TODO: Step 2 - Prevent your Battlesnake from colliding with itself
     # my_body = game_state['you']['body']
