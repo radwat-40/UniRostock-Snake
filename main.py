@@ -15,9 +15,8 @@ import random
 import typing
 
 
-# info is called when you create your Battlesnake on play.battlesnake.com
-# and controls your Battlesnake's appearance
-# TIP: If you open your Battlesnake URL in a browser you should see this data
+
+#def spielgrundsätze---------------------------------------------------------------------------------------
 def info() -> typing.Dict:
     print("INFO")
 
@@ -30,6 +29,7 @@ def info() -> typing.Dict:
     }
 
 
+
 # start is called when your Battlesnake begins a game
 def start(game_state: typing.Dict):
     print("GAME START")
@@ -39,11 +39,38 @@ def start(game_state: typing.Dict):
 def end(game_state: typing.Dict):
     print("GAME OVER\n")
 
+#funktionen kollision--------------------------------------------------------------------------------------------------------
 
+def avoid_self_collision(my_head, my_body, is_move_safe): #henrik -nicht in sich selber fahren 
+    for segment in my_body[1:]:
+        if segment["x"] == my_head["x"] + 1 and segment["y"] == my_head["y"]:
+            is_move_safe["right"] = False
+        if segment["x"] == my_head["x"] - 1 and segment["y"] == my_head["y"]:
+            is_move_safe["left"] = False
+        if segment["x"] == my_head["x"] and segment["y"] == my_head["y"] + 1:
+            is_move_safe["up"] = False
+        if segment["x"] == my_head["x"] and segment["y"] == my_head["y"] - 1:
+            is_move_safe["down"] = False
+
+def avoid_enemy_collision(my_head, snakes, is_move_safe, my_id):
+    for snake in snakes:
+        if snake["id"] == my_id:
+            continue  #henrik eigenen Körper überspringen, damit keine doppellungen
+        for segment in snake["body"]:
+            if segment["x"] == my_head["x"] + 1 and segment["y"] == my_head["y"]:
+                is_move_safe["right"] = False
+            if segment["x"] == my_head["x"] - 1 and segment["y"] == my_head["y"]:
+                is_move_safe["left"] = False
+            if segment["x"] == my_head["x"] and segment["y"] == my_head["y"] + 1:
+                is_move_safe["up"] = False
+            if segment["x"] == my_head["x"] and segment["y"] == my_head["y"] - 1:
+                is_move_safe["down"] = False
 
 # move is called on every turn and returns your next move
 # Valid moves are "up", "down", "left", or "right"
 # See https://docs.battlesnake.com/api/example-move for available data
+
+#hier alles was jeden zug aufgerufen wird zum bewegen----------------------------------------------------------------------------
 def move(game_state: typing.Dict) -> typing.Dict:
     board_width = game_state['board']['width'] #definieren der breite des Spielfeldes um später dareuf zurük zu greifen HR
     board_height = game_state['board']['height'] #definieren der höhe HR
@@ -82,12 +109,17 @@ def move(game_state: typing.Dict) -> typing.Dict:
     
     if my_head["y"] == board_height -1: 
         is_move_safe["up"] = False
+    
 
     # TODO: Step 2 - Prevent your Battlesnake from colliding with itself
-    # my_body = game_state['you']['body']
+    my_body = game_state['you']['body'] #henrik -my_body wird definiert für eigene körper kollision vermeiden 
+    avoid_self_collision(my_head, my_body, is_move_safe) #henrik- nicht in sich selber fahren 
 
     # TODO: Step 3 - Prevent your Battlesnake from colliding with other Battlesnakes
     # opponents = game_state['board']['snakes']
+    my_id = game_state['you']['id']
+    snakes = game_state['board']['snakes']
+    avoid_enemy_collision(my_head, snakes, is_move_safe, my_id)
 
     # Are there any safe moves left?
     safe_moves = []
@@ -114,3 +146,8 @@ if __name__ == "__main__":
     from server import run_server
 
     run_server({"info": info, "start": start, "move": move, "end": end})
+
+
+
+
+
