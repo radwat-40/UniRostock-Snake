@@ -1,19 +1,6 @@
-# Welcome to
-#ME
-# __________         __    __  .__                               __
-# \______   \_____ _/  |__/  |_|  |   ____   ______ ____ _____  |  | __ ____
-#  |    |  _/\__  \\   __\   __\  | _/ __ \ /  ___//    \\__  \ |  |/ // __ \
-#  |    |   \ / __ \|  |  |  | |  |_\  ___/ \___ \|   |  \/ __ \|    <\  ___/
-#  |________/(______/__|  |__| |____/\_____>______>___|__(______/__|__\\_____>
-#
-# This file can be a nice home for your Battlesnake logic and helper functions.
-#
-# To get you started we've included code to prevent your Battlesnake from moving backwards.
-# For more info see docs.battlesnake.com
 
 import random
 import typing
-
 
 
 #def spielgrundsätze---------------------------------------------------------------------------------------
@@ -66,9 +53,103 @@ def avoid_enemy_collision(my_head, snakes, is_move_safe, my_id):
             if segment["x"] == my_head["x"] and segment["y"] == my_head["y"] - 1:
                 is_move_safe["down"] = False
 
-# move is called on every turn and returns your next move
-# Valid moves are "up", "down", "left", or "right"
-# See https://docs.battlesnake.com/api/example-move for available data
+def select_move_in_recovery_mode(my_head, food_list, is_move_safe, safe_moves): #bestimmt welcher move im recovbery mode am betsen ist 
+    target_food = find_closest_food(my_head, food_list)
+
+    if target_food:
+        if target_food['x'] > my_head['x'] and is_move_safe["right"]:
+            return "right"
+        elif target_food['x'] < my_head['x'] and is_move_safe["left"]:
+            return "left"
+        elif target_food['y'] > my_head['y'] and is_move_safe["up"]:
+            return "up"
+        elif target_food['y'] < my_head['y'] and is_move_safe["down"]:
+            return "down"
+        else:
+            return random.choice(safe_moves)
+    else:
+        return random.choice(safe_moves)
+
+#def calculate_free_space(my_head, game_state)
+#Zweck: Bestimmt, wie viel freier Raum uns nach einem Zug noch zur Verfügung steht.
+#Nutzt Flood-Fill (z. B. BFS), um Sackgassen zu vermeiden.
+#Wichtig, um langfristig den Gegner in enge Bereiche zu drängen.
+
+#def is_head_on_risky(my_head, my_length, enemy_heads, enemy_lengths)
+#Zweck: Ermittelt, ob ein Kopf-an-Kopf-Kampf im nächsten Zug gefährlich wäre.
+#Wichtig um tödliche Duelle nur einzugehen, wenn wir länger sind.
+
+#def evaluate_move(move, game_state)
+# Zweck: Bewertet jeden möglichen Zug mit einem Punktesystem.
+#Bewertet u.a.:
+#Freien Raum (Ergebnis von calculate_free_space())
+#Gesundheitszustand (Health)
+#Head-on-Sicherheit
+#Entfernung zu Nahrung (nur wenn Nahrung nötig)
+#Positionskontrolle
+
+
+
+
+def determine_mode(my_length, enemy_length, my_health):  #Henrik: Legt fest, in welchem Modus wir uns gerade befinden:
+    if my_health < 40:
+        return "emergency" #Maximal defensiv bei hoher Gefahr.
+    elif my_length <= enemy_length + 1:
+        return "recovery" #Nahrung suchen, wenn Health niedrig oder Gegner uns einholt.
+    elif my_length >= enemy_length + 3:
+        return "aggressive" #Head-on suchen, wenn wir sicher länger sind.
+    else:
+        return "normal" #Sicher spielen, Raum kontrollieren.
+
+
+
+
+
+
+#def ind_closest_food(my_head, food_list)
+#Zweck: Findet gezielt die nächstliegende Nahrung, wenn wir sie brauchen.
+def find_closest_food(my_head, food_list):
+    """
+    Henrik: sobald recovery mode aktiviert ist muss essend gefunden werden
+    Findet das nächste Food basierend auf der Manhattan-Distanz.
+    Gibt die Position des am nächsten gelegenem Food zurück.
+    """
+    if not food_list:
+        return None  # Kein Food vorhanden
+
+    closest_food = None
+    min_distance = float('inf') #wert wird auf unendlich gesetzt, damit sobald nächstes food hinzugefügt wird dieses "gejagt" wird 
+
+    for food in food_list:
+        distance = abs(my_head["x"] - food["x"]) + abs(my_head["y"] - food["y"])
+        if distance < min_distance:
+            min_distance = distance
+            closest_food = food
+
+    return closest_food
+
+
+
+
+
+#def simulate_enemy_responses(my_head, game_state)
+#Zweck: Simuliert für einen Zug die möglichen Antworten des Gegners.
+#Nur leichter Lookahead (max. 1–2 Züge) → bleibt schnell.
+#Hilft uns, riskante Situationen früh zu erkennen.
+
+#def choose_least_bad_move(is_move_safe)
+#Zweck: Falls alle anderen Bewertungen unsicher sind:
+#Wählt den sichersten noch verfügbaren Move.
+#Verhindert, dass wir kampflos sterben.
+
+#BONUS: defis_enemy_trapped(enemy_head, game_state)
+#Zweck: Erkennt, ob der Gegner nur noch wenig Raum zur Verfügung hat.
+#Ermöglicht aktives Einsperren → führt zu automatischem Sieg.
+
+
+
+
+
 
 #hier alles was jeden zug aufgerufen wird zum bewegen----------------------------------------------------------------------------
 def move(game_state: typing.Dict) -> typing.Dict:
@@ -131,8 +212,22 @@ def move(game_state: typing.Dict) -> typing.Dict:
         print(f"MOVE {game_state['turn']}: No safe moves detected! Moving down")
         return {"move": "down"}
 
-    # Choose a random move from the safe ones
-    next_move = random.choice(safe_moves)
+
+    # Henrik: Aktuellen Modus bestimmen:
+    #vorher war hier random move jetzt update
+    my_length = game_state['you']['length']
+    my_health = game_state['you']['health']
+    enemy_snakes = [s for s in snakes if s["id"] != my_id]
+    enemy_length = enemy_snakes[0]["length"]
+    current_mode = determine_mode(my_length, enemy_length, my_health)
+
+    food_list = game_state['board']['food'] # food liste holen
+    #Auswahl der nächsten Züge: 
+    if current_mode == "recovery":
+        next_move = select_move_in_recovery_mode(my_head, food_list, is_move_safe, safe_moves)
+    else:
+        next_move = random.choice(safe_moves)
+#----------------------------------------------------------------------
 
     # TODO: Step 4 - Move towards food instead of random, to regain health and survive longer
     # food = game_state['board']['food']
