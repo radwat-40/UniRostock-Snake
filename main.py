@@ -176,7 +176,7 @@ def is_true_head_on_risky(move, my_head, my_length, game_state):
             if enemy_length > my_length:
                 return "death"
             elif enemy_length == my_length:
-                return "neutral_risk"
+                return "death"
             else:
                 return "advantage"
     return "safe"
