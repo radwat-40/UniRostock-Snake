@@ -119,6 +119,8 @@ def evaluate_move_3ply(start_move: str,
     """
     3-Ply Lookahead mit Zobrist-Hash als TT-Key.
     """
+    global current_hash
+    original_hash = current_hash
     alpha_orig, beta_orig = alpha, beta
 
     # **Hier geändert**: Verwende Integer-Hash statt String
@@ -137,6 +139,7 @@ def evaluate_move_3ply(start_move: str,
     else:
         etype = 'EXACT'
     store_in_tt(key, depth, val, etype)
+    current_hash = original_hash
     return val
            
 def lookup_in_tt(hash_key, depth, alpha, beta):
