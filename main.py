@@ -387,10 +387,26 @@ def move(game_state: typing.Dict) -> typing.Dict:
 
     # Kollisionscheck
     is_move_safe = {m: True for m in delta}
+    print(f"DEBUG board_width={board_width}, board_height={board_height}, head={my_head}")
+    print("DEBUG before avoid_collisions, is_move_safe =", is_move_safe)
     avoid_collisions(my_head, my_body, snakes, is_move_safe, board_width, board_height, my_id)
+    print("DEBUG after avoid_collisions, is_move_safe =", is_move_safe)
     safe_moves = [m for m, ok in is_move_safe.items() if ok]
     if not safe_moves:
-        return {"move": "down"}
+        # Versuche zumindest, nicht direkt in die Wand zu fahren:
+        possible = []
+        for m, (dx, dy) in delta.items():
+            nx, ny = my_head["x"] + dx, my_head["y"] + dy
+            if 0 <= nx < board_width and 0 <= ny < board_height:
+                possible.append(m)
+        if possible:
+            # Nimm den ersten oder wähle zufällig einen:
+            chosen = possible[0]  
+        else:
+            # wirklich kein Ausweg mehr – dann Abbruchzug
+            chosen = "down"
+        return {"move": chosen}
+
 
     mode = determine_mode(my_length, enemy_length, my_health)
 
