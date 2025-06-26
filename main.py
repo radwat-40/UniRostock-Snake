@@ -244,38 +244,48 @@ def evaluate_move_3ply(start_move: str,
         return cached
 
     my_id = game_state['you']['id']
-    # Schritt 1: Prüfe Sicherheit des ersten Zuges
     if not is_move_safe[start_move]:
         return -9999
 
-    # Schritt 2: Simuliere eigenen Zug in-place
     changes1 = apply_moves(game_state, {my_id: start_move})
 
-    # Gegner ermitteln
     enemy = next(s for s in game_state['board']['snakes'] if s['id'] != my_id)
+    enemy_head = enemy['body'][0]
+    board_width = game_state['board']['width']
+    board_height = game_state['board']['height']
+
+    # === Priorisierte Gegnerzüge (Top 2) bestimmen ===
+    enemy_moves_scored = []
+    for move in delta:
+        dx, dy = delta[move]
+        x, y = enemy_head['x'] + dx, enemy_head['y'] + dy
+        if 0 <= x < board_width and 0 <= y < board_height:
+            # Simple Score: Nähe zur Spielfeldmitte (für bessere Bewegung)
+            score = -abs(x - board_width // 2) - abs(y - board_height // 2)
+            enemy_moves_scored.append((move, score))
+
+    prioritized_enemy_moves = [m for m, _ in sorted(enemy_moves_scored, key=lambda t: t[1], reverse=True)[:2]]
+
     best_score = -float('inf')
 
-    # Schritt 3: Gegnerantworten
-    for enemy_move in delta:
+    for enemy_move in prioritized_enemy_moves:
         if best_score >= beta:
             break
+
         changes2 = apply_moves(game_state, {enemy['id']: enemy_move})
 
-        # Schritt 4: Eigene Folgezüge
         you_snake = next(s for s in game_state['board']['snakes'] if s['id'] == my_id)
         follow_head = you_snake['body'][0]
-        # Kollisionscheck für Folgezüge
         safe_follow = {m: True for m in delta}
         avoid_collisions(follow_head,
                          you_snake['body'],
                          game_state['board']['snakes'],
                          safe_follow,
-                         game_state['board']['width'],
-                         game_state['board']['height'],
+                         board_width,
+                         board_height,
                          my_id)
         follow_moves = [m for m, ok in safe_follow.items() if ok]
 
-        # Bewertung
         if not follow_moves:
             response_score = -9999
         else:
@@ -284,20 +294,15 @@ def evaluate_move_3ply(start_move: str,
                 for m in follow_moves
             )
 
-        # Update Best-Score
         best_score = response_score if best_score == -float('inf') or response_score < best_score else best_score
-
-        # Undo Gegnerzug
         undo_moves(game_state, changes2)
 
         if best_score <= alpha:
             break
         alpha = max(alpha, best_score)
 
-    # Schritt 5: Ersten Zug rückgängig machen
     undo_moves(game_state, changes1)
 
-    # Schritt 6: Cache Store
     if best_score <= alpha_orig:
         etype = 'UPPERBOUND'
     elif best_score >= beta_orig:
