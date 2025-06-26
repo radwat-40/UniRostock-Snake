@@ -8,6 +8,10 @@ delta = {
     "left":  (-1, 0),
     "right": (1, 0)
 }
+# --- GLOBALS für Zobrist-Hashing ---
+ZOB_SNAKE = {}   # wird in start() pro Snake-ID initialisiert
+ZOB_FOOD  = [[random.getrandbits(64) for _ in range(11)] for _ in range(11)]
+current_hash = 0  # globaler 64-Bit Hash
 # === INFO ===
 def info() -> typing.Dict:
     return {
@@ -18,14 +22,123 @@ def info() -> typing.Dict:
         "tail": "curled"
     }
 transposition_table = {}
+##hash für ganze Board 
+def init_hash(state):
+    """Initialer Zobrist-Hash für das ganze Board."""
+    h = 0
+    for snake in state['board']['snakes']:
+        sid = snake['id']
+        # 2D-Array für diese Snake anlegen, falls noch nicht geschehen
+        if sid not in ZOB_SNAKE:
+            ZOB_SNAKE[sid] = [[random.getrandbits(64) for _ in range(11)] for _ in range(11)]
+        for seg in snake['body']:
+            h ^= ZOB_SNAKE[sid][seg['x']][seg['y']]
+    for f in state['board']['food']:
+        h ^= ZOB_FOOD[f['x']][f['y']]
+    return h
 
 # === GAME START ===
 def start(game_state: typing.Dict):
+    """Spielstart: Zobrist-Tables initialisieren und initialen Hash setzen."""
+    global current_hash
+    # Stelle sicher, dass ZOB_SNAKE für alle IDs da ist
+    for snake in game_state['board']['snakes']:
+        sid = snake['id']
+        if sid not in ZOB_SNAKE:
+            ZOB_SNAKE[sid] = [[random.getrandbits(64) for _ in range(11)] for _ in range(11)]
+    current_hash = init_hash(game_state)
     print("GAME START")
 
 def end(game_state: typing.Dict):
     print("GAME OVER\n")
 #----------------Funktionen------------------------------
+def apply_moves(game_state: typing.Dict, move_dict: typing.Dict[str,str]) -> typing.List[tuple]:
+    """Wie vorher, plus Zobrist-XOR-Updates."""
+    global current_hash
+    board = game_state['board']
+    food_set = {(f['x'], f['y']) for f in board['food']}
+    changes = []
+
+    for snake in board['snakes']:
+        sid = snake['id']
+        mv = move_dict[sid]
+        dx, dy = delta[mv]
+        head = snake['body'][0]
+        new_head = {"x": head["x"] + dx, "y": head["y"] + dy}
+
+        # --- ZOBRIST: alten Kopf entfernen, neuen hinzufügen ---
+        current_hash ^= ZOB_SNAKE[sid][head['x']][head['y']]
+        current_hash ^= ZOB_SNAKE[sid][new_head['x']][new_head['y']]
+
+        snake['body'].insert(0, new_head)
+
+        if (new_head["x"], new_head["y"]) in food_set:
+            # Food gefressen: Food-Zobrist entfernen
+            current_hash ^= ZOB_FOOD[new_head['x']][new_head['y']]
+            for i,f in enumerate(board['food']):
+                if (f['x'], f['y']) == (new_head['x'], new_head['y']):
+                    removed = board['food'].pop(i)
+                    changes.append((sid, True, removed))
+                    break
+        else:
+            # Schwanzsegment raus – Zobrist ebenfalls rückgängig machen
+            tail = snake['body'].pop()
+            current_hash ^= ZOB_SNAKE[sid][tail['x']][tail['y']]
+            changes.append((sid, False, tail))
+
+    return changes
+
+def undo_moves(game_state: typing.Dict, changes: typing.List[tuple]):
+    """Undo plus Zobrist-XOR zurückdrehen."""
+    global current_hash
+    board = game_state['board']
+
+    for sid, ate, seg in reversed(changes):
+        snake = next(s for s in board['snakes'] if s['id'] == sid)
+        head = snake['body'][0]
+        # Kopf entfernen (neuester)
+        snake['body'].pop(0)
+        current_hash ^= ZOB_SNAKE[sid][head['x']][head['y']]
+
+        if ate:
+            # Food wieder rein – Hash erneut XORen
+            board['food'].append(seg)
+            current_hash ^= ZOB_FOOD[seg['x']][seg['y']]
+        else:
+            # Schwanz wieder anhängen und Hash
+            snake['body'].append(seg)
+            current_hash ^= ZOB_SNAKE[sid][seg['x']][seg['y']]
+
+def evaluate_move_3ply(start_move: str,
+                       game_state: typing.Dict,
+                       is_move_safe: typing.Dict[str, bool],
+                       evaluation_function: typing.Callable,
+                       alpha: float,
+                       beta: float,
+                       depth: int) -> float:
+    """
+    3-Ply Lookahead mit Zobrist-Hash als TT-Key.
+    """
+    alpha_orig, beta_orig = alpha, beta
+
+    # **Hier geändert**: Verwende Integer-Hash statt String
+    key = (current_hash, depth)
+    cached = lookup_in_tt(key, depth, alpha, beta)
+    if cached is not None:
+        return cached
+
+    # … Rest bleibt unverändert …
+    # Am Ende speichern wir ebenfalls mit demselben Key:
+    val = best_score
+    if best_score <= alpha_orig:
+        etype = 'UPPERBOUND'
+    elif best_score >= beta_orig:
+        etype = 'LOWERBOUND'
+    else:
+        etype = 'EXACT'
+    store_in_tt(key, depth, val, etype)
+    return val
+           
 def lookup_in_tt(hash_key, depth, alpha, beta):
     entry = transposition_table.get(hash_key)
     if not entry or entry['depth'] < depth:
@@ -59,14 +172,6 @@ def store_in_tt(hash_key, depth, value, entry_type):
         'type': entry_type  # 'EXACT', 'LOWER', 'UPPER'
     }
 
-def board_to_key(state):
-    parts = []
-    for snake in state['board']['snakes']:
-        parts.append(f"{snake['id']}:" + ",".join(f"{seg['x']}-{seg['y']}" for seg in snake['body']))
-    food = ",".join(f"{f['x']}-{f['y']}" for f in state['board']['food'])
-    parts.append("F:" + food)
-    return "|".join(parts)
-
 def determine_mode(my_length, enemy_length, my_health):
     if my_health < 25:
         return "emergency"
@@ -78,61 +183,6 @@ def determine_mode(my_length, enemy_length, my_health):
         return "aggressive"
     else:
         return "normal"
-
-def apply_moves(game_state: typing.Dict, move_dict: typing.Dict[str,str]) -> typing.List[tuple]:
-    """
-    Wendet alle Züge in move_dict direkt auf game_state an.
-    Gibt eine Liste von Änderungen zurück, mit der man später undo_moves() aufrufen kann.
-    Jede Änderung ist ein Tupel: (snake_id, hat_gefressen: bool, removed_segment)
-    """
-    board = game_state['board']
-    # Schnapp dir die aktuelle Food-Map
-    food_set = {(f['x'], f['y']) for f in board['food']}
-    changes = []
-
-    for snake in board['snakes']:
-        sid = snake['id']
-        mv = move_dict[sid]
-        dx, dy = delta[mv]
-        head = snake['body'][0]
-        new_head = {"x": head["x"] + dx, "y": head["y"] + dy}
-
-        # Kopf einschieben
-        snake['body'].insert(0, new_head)
-
-        # Food-Check
-        if (new_head["x"], new_head["y"]) in food_set:
-            # hat gefressen: entferne das Food-Objekt
-            for i,f in enumerate(board['food']):
-                if (f['x'], f['y']) == (new_head["x"], new_head["y"]):
-                    removed = board['food'].pop(i)
-                    changes.append((sid, True, removed))
-                    break
-        else:
-            # kein Food: Schwanzsegment entfernen
-            tail = snake['body'].pop()
-            changes.append((sid, False, tail))
-
-    return changes
-
-def undo_moves(game_state: typing.Dict, changes: typing.List[tuple]):
-    """
-    Hebt die mit apply_moves() vorgenommenen Änderungen rückgängig:
-    Fügt geschlucktes Food wieder ein oder hängt abgeschnittenen Schwanz an,
-    und entfernt jeweils den neu eingefügten Kopf.
-    """
-    board = game_state['board']
-    # Gehe die Änderungen in umgekehrter Reihenfolge durch
-    for sid, ate, seg in reversed(changes):
-        snake = next(s for s in board['snakes'] if s['id'] == sid)
-        # Kopf entfernen
-        snake['body'].pop(0)
-        if ate:
-            # Food zurücklegen
-            board['food'].append(seg)
-        else:
-            # Schwanz wieder anhängen
-            snake['body'].append(seg)
 
 def calculate_free_space(my_head, game_state, max_limit=50):
     board_width = game_state['board']['width']
@@ -211,7 +261,6 @@ def is_true_head_on_risky(move, my_head, my_length, game_state):
 
     return "safe"
 
-
 def avoid_collisions(my_head, my_body, snakes, is_move_safe, board_width, board_height, my_id):
     # Wand-Kollision
     for move, (dx, dy) in delta.items():
@@ -235,90 +284,6 @@ def avoid_collisions(my_head, my_body, snakes, is_move_safe, board_width, board_
                     is_move_safe[move] = False
 
 
-def evaluate_move_3ply(start_move: str,
-                       game_state: typing.Dict,
-                       is_move_safe: typing.Dict[str, bool],
-                       evaluation_function: typing.Callable,
-                       alpha: float,
-                       beta: float,
-                       depth: int) -> float:
-    """
-    3-Ply Lookahead mit In-Place-Simulation, Alpha-Beta-Pruning und Transposition-Table.
-    """
-    alpha_orig, beta_orig = alpha, beta
-    key = board_to_key(game_state) + f"#d{depth}"
-    cached = lookup_in_tt(key, depth, alpha, beta)
-    if cached is not None:
-        return cached
-
-    my_id = game_state['you']['id']
-    if not is_move_safe[start_move]:
-        return -9999
-
-    changes1 = apply_moves(game_state, {my_id: start_move})
-
-    enemy = next(s for s in game_state['board']['snakes'] if s['id'] != my_id)
-    enemy_head = enemy['body'][0]
-    board_width = game_state['board']['width']
-    board_height = game_state['board']['height']
-
-    # === Priorisierte Gegnerzüge (Top 2) bestimmen ===
-    enemy_moves_scored = []
-    for move in delta:
-        dx, dy = delta[move]
-        x, y = enemy_head['x'] + dx, enemy_head['y'] + dy
-        if 0 <= x < board_width and 0 <= y < board_height:
-            # Simple Score: Nähe zur Spielfeldmitte (für bessere Bewegung)
-            score = -abs(x - board_width // 2) - abs(y - board_height // 2)
-            enemy_moves_scored.append((move, score))
-
-    prioritized_enemy_moves = [m for m, _ in sorted(enemy_moves_scored, key=lambda t: t[1], reverse=True)[:2]]
-
-    best_score = -float('inf')
-
-    for enemy_move in prioritized_enemy_moves:
-        if best_score >= beta:
-            break
-
-        changes2 = apply_moves(game_state, {enemy['id']: enemy_move})
-
-        you_snake = next(s for s in game_state['board']['snakes'] if s['id'] == my_id)
-        follow_head = you_snake['body'][0]
-        safe_follow = {m: True for m in delta}
-        avoid_collisions(follow_head,
-                         you_snake['body'],
-                         game_state['board']['snakes'],
-                         safe_follow,
-                         board_width,
-                         board_height,
-                         my_id)
-        follow_moves = [m for m, ok in safe_follow.items() if ok]
-
-        if not follow_moves:
-            response_score = -9999
-        else:
-            response_score = max(
-                evaluation_function(m, follow_head, game_state, safe_follow)
-                for m in follow_moves
-            )
-
-        best_score = response_score if best_score == -float('inf') or response_score < best_score else best_score
-        undo_moves(game_state, changes2)
-
-        if best_score <= alpha:
-            break
-        alpha = max(alpha, best_score)
-
-    undo_moves(game_state, changes1)
-
-    if best_score <= alpha_orig:
-        etype = 'UPPERBOUND'
-    elif best_score >= beta_orig:
-        etype = 'LOWERBOUND'
-    else:
-        etype = 'EXACT'
-    store_in_tt(key, depth, best_score, etype)
-    return best_score
 
 
 # === EVALUATION ===
