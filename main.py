@@ -192,40 +192,48 @@ def is_true_head_on_risky(move, my_head, my_length, game_state):
             continue
         enemy_head = snake["body"][0]
         enemy_length = snake["length"]
+        enemy_health = snake["health"]
         enemy_moves = []
-        for ex, ey in [(-1,0), (1,0), (0,-1), (0,1)]:
+
+        for ex, ey in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
             nx, ny = enemy_head["x"] + ex, enemy_head["y"] + ey
             if 0 <= nx < board_width and 0 <= ny < board_height and (nx, ny) not in occupied:
                 enemy_moves.append((nx, ny))
+
         if (new_head["x"], new_head["y"]) in enemy_moves:
-            if enemy_length >= my_length:
+            if enemy_length > my_length:
+                return "death"
+            elif enemy_length == my_length:
+                # Hier Vermeidung auch bei Gleichstand!
                 return "death"
             else:
                 return "advantage"
+
     return "safe"
+
 
 def avoid_collisions(my_head, my_body, snakes, is_move_safe, board_width, board_height, my_id):
     # Wand-Kollision
-    if my_head["x"] == 0: is_move_safe["left"] = False
-    if my_head["x"] == board_width - 1: is_move_safe["right"] = False
-    if my_head["y"] == 0: is_move_safe["down"] = False
-    if my_head["y"] == board_height - 1: is_move_safe["up"] = False
+    for move, (dx, dy) in delta.items():
+        nx, ny = my_head["x"] + dx, my_head["y"] + dy
+        if not (0 <= nx < board_width and 0 <= ny < board_height):
+            is_move_safe[move] = False
 
     # Eigener Körper
     for segment in my_body[1:]:
-        if segment["x"] == my_head["x"] + 1 and segment["y"] == my_head["y"]: is_move_safe["right"] = False
-        if segment["x"] == my_head["x"] - 1 and segment["y"] == my_head["y"]: is_move_safe["left"] = False
-        if segment["x"] == my_head["x"] and segment["y"] == my_head["y"] + 1: is_move_safe["up"] = False
-        if segment["x"] == my_head["x"] and segment["y"] == my_head["y"] - 1: is_move_safe["down"] = False
+        for move, (dx, dy) in delta.items():
+            if segment["x"] == my_head["x"] + dx and segment["y"] == my_head["y"] + dy:
+                is_move_safe[move] = False
 
     # Gegnerkörper
     for snake in snakes:
-        if snake["id"] == my_id: continue
+        if snake["id"] == my_id:
+            continue
         for segment in snake["body"]:
-            if segment["x"] == my_head["x"] + 1 and segment["y"] == my_head["y"]: is_move_safe["right"] = False
-            if segment["x"] == my_head["x"] - 1 and segment["y"] == my_head["y"]: is_move_safe["left"] = False
-            if segment["x"] == my_head["x"] and segment["y"] == my_head["y"] + 1: is_move_safe["up"] = False
-            if segment["x"] == my_head["x"] and segment["y"] == my_head["y"] - 1: is_move_safe["down"] = False
+            for move, (dx, dy) in delta.items():
+                if segment["x"] == my_head["x"] + dx and segment["y"] == my_head["y"] + dy:
+                    is_move_safe[move] = False
+
 
 def evaluate_move_3ply(start_move: str,
                        game_state: typing.Dict,
