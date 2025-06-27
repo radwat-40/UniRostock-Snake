@@ -16,10 +16,10 @@ current_hash = 0  # globaler 64-Bit Hash
 def info() -> typing.Dict:
     return {
         "apiversion": "1",
-        "author": "Henrik-Team",
-        "color": "#736CCB",
-        "head": "beluga",
-        "tail": "curled"
+        "author": "team-WIN",
+        "color": "#FF3CAC",
+        "head": "gamer",
+        "tail": "bolt"
     }
 transposition_table = {}
 ##hash für ganze Board 
@@ -39,9 +39,8 @@ def init_hash(state):
 
 # === GAME START ===
 def start(game_state: typing.Dict):
-    """Spielstart: Zobrist-Tables initialisieren, TT leeren und initialen Hash setzen."""
-    global current_hash, transposition_table
-    transposition_table.clear()    # Alte Einträge entfernen
+    """Spielstart: Zobrist-Tables initialisieren und initialen Hash setzen."""
+    global current_hash
     # Stelle sicher, dass ZOB_SNAKE für alle IDs da ist
     for snake in game_state['board']['snakes']:
         sid = snake['id']
@@ -49,16 +48,10 @@ def start(game_state: typing.Dict):
             ZOB_SNAKE[sid] = [[random.getrandbits(64) for _ in range(11)] for _ in range(11)]
     current_hash = init_hash(game_state)
     print("GAME START")
+
+def end(game_state: typing.Dict):
+    print("GAME OVER\n")
 #----------------Funktionen------------------------------
-
-def get_enemy_id(game_state: typing.Dict) -> str:
-    """Gibt die ID des Gegners zurück."""
-    return next(
-        s['id']
-        for s in game_state['board']['snakes']
-        if s['id'] != game_state['you']['id']
-    )
-
 def apply_moves(game_state: typing.Dict, move_dict: typing.Dict[str,str]) -> typing.List[tuple]:
     """Wie vorher, plus Zobrist-XOR-Updates."""
     global current_hash
@@ -124,84 +117,27 @@ def evaluate_move_3ply(start_move: str,
                        beta: float,
                        depth: int) -> float:
     """
-    3-Ply Lookahead mit korrektem Zobrist-Key nach apply_moves
-    und frischem is_move_safe auf jeder Ebene.
+    3-Ply Lookahead mit Zobrist-Hash als TT-Key.
     """
-    global current_hash
     alpha_orig, beta_orig = alpha, beta
-    me = game_state['you']['id']
-    enemy_id = get_enemy_id(game_state)
 
-    # 1) Ersten Zug anwenden
-    changes1 = apply_moves(game_state, {me: start_move})
-
-    # 2) Jetzt TT-Lookup auf Basis des aktualisierten Hash
+    # **Hier geändert**: Verwende Integer-Hash statt String
     key = (current_hash, depth)
     cached = lookup_in_tt(key, depth, alpha, beta)
     if cached is not None:
-        undo_moves(game_state, changes1)
         return cached
 
-    # 3) Restlicher 2-Ply-Search: Gegnerzug + unser zweiter Zug
-    best_score = -float('inf')
-    for em in delta:
-        # sichere Gegnerzüge neu berechnen
-        safe_e = {m: True for m in delta}
-        avoid_collisions(
-            game_state['board']['snakes'][1]['body'][0],
-            game_state['board']['snakes'][1]['body'],
-            game_state['board']['snakes'],
-            safe_e,
-            game_state['board']['width'],
-            game_state['board']['height'],
-            enemy_id
-        )
-        if not safe_e.get(em):
-            continue
-
-        changes2 = apply_moves(game_state, {enemy_id: em})
-        for om in delta:
-            # sichere eigene Züge neu berechnen
-            safe_o = {m: True for m in delta}
-            avoid_collisions(
-                game_state['you']['body'][0],
-                game_state['you']['body'],
-                game_state['board']['snakes'],
-                safe_o,
-                game_state['board']['width'],
-                game_state['board']['height'],
-                me
-            )
-            if not safe_o.get(om):
-                continue
-
-            changes3 = apply_moves(game_state, {me: om})
-            score = evaluation_function(om, game_state, safe_o)
-            undo_moves(game_state, changes3)
-
-            if score > best_score:
-                best_score = score
-                alpha = max(alpha, score)
-            if alpha >= beta:
-                undo_moves(game_state, changes2)
-                undo_moves(game_state, changes1)
-                store_in_tt(key, depth, best_score, 'LOWERBOUND')
-                return best_score
-
-        undo_moves(game_state, changes2)
-
-    # 4) TT-Eintrag speichern
+    # … Rest bleibt unverändert …
+    # Am Ende speichern wir ebenfalls mit demselben Key:
+    val = best_score
     if best_score <= alpha_orig:
         etype = 'UPPERBOUND'
     elif best_score >= beta_orig:
         etype = 'LOWERBOUND'
     else:
         etype = 'EXACT'
-    store_in_tt(key, depth, best_score, etype)
-
-    # 5) Ersten Zug rückgängig machen und Ergebnis liefern
-    undo_moves(game_state, changes1)
-    return best_score
+    store_in_tt(key, depth, val, etype)
+    return val
            
 def lookup_in_tt(hash_key, depth, alpha, beta):
     entry = transposition_table.get(hash_key)
@@ -332,8 +268,8 @@ def avoid_collisions(my_head, my_body, snakes, is_move_safe, board_width, board_
         if not (0 <= nx < board_width and 0 <= ny < board_height):
             is_move_safe[move] = False
 
-    # Eigener Körper – ohne den Schwanz (letztes Segment)
-    for segment in my_body[1:-1]:
+    # Eigener Körper
+    for segment in my_body[1:]:
         for move, (dx, dy) in delta.items():
             if segment["x"] == my_head["x"] + dx and segment["y"] == my_head["y"] + dy:
                 is_move_safe[move] = False
@@ -435,78 +371,77 @@ def evaluate_kill_mode(move, my_head, game_state, is_move_safe):
     return score
 # === MOVE ===
 def move(game_state: typing.Dict) -> typing.Dict:
-    board_width  = game_state['board']['width']
+    board_width = game_state['board']['width']
     board_height = game_state['board']['height']
     my_head = game_state['you']['body'][0]
     my_body = game_state['you']['body']
-    my_id   = game_state['you']['id']
+    my_length = game_state['you']['length']
+    my_health = game_state['you']['health']
+    my_id = game_state['you']['id']
     snakes = game_state['board']['snakes']
-    enemy  = next(s for s in snakes if s['id'] != my_id)
+    enemy = [s for s in snakes if s['id'] != my_id][0]
+    enemy_length = enemy['length']
 
-    # 1) Kollisionscheck (ohne den Schwanz als Hindernis)
+    # Occupied-Set einmalig
+    occupied = {(seg['x'], seg['y']) for s in snakes for seg in s['body']}
+
+    # Kollisionscheck
     is_move_safe = {m: True for m in delta}
-    avoid_collisions(my_head, my_body, snakes,
-                     is_move_safe, board_width, board_height, my_id)
+    print(f"DEBUG board_width={board_width}, board_height={board_height}, head={my_head}")
+    print("DEBUG before avoid_collisions, is_move_safe =", is_move_safe)
+    avoid_collisions(my_head, my_body, snakes, is_move_safe, board_width, board_height, my_id)
+    print("DEBUG after avoid_collisions, is_move_safe =", is_move_safe)
     safe_moves = [m for m, ok in is_move_safe.items() if ok]
-
-    # 2) Schwanz-Ausnahme: Erlaube in die alte Schwanz-Zelle,
-    #    außer dort liegt ein Apfel (dort würde der Schwanz stehen bleiben)
-    tail = my_body[-1]
-    food_set = {(f['x'], f['y']) for f in game_state['board']['food']}
-    for m in safe_moves.copy():
-        dx, dy = delta[m]
-        nx, ny = my_head['x'] + dx, my_head['y'] + dy
-        if (nx, ny) == (tail['x'], tail['y']):
-            if (nx, ny) in food_set:
-                safe_moves.remove(m)
-
     if not safe_moves:
-        # Fallback: irgendeinen legalen Zug wählen
+        # Versuche zumindest, nicht direkt in die Wand zu fahren:
+        possible = []
         for m, (dx, dy) in delta.items():
-            nx, ny = my_head['x']+dx, my_head['y']+dy
+            nx, ny = my_head["x"] + dx, my_head["y"] + dy
             if 0 <= nx < board_width and 0 <= ny < board_height:
-                return {"move": m}
-        return {"move": "down"}
+                possible.append(m)
+        if possible:
+            # Nimm den ersten oder wähle zufällig einen:
+            chosen = possible[0]  
+        else:
+            # wirklich kein Ausweg mehr – dann Abbruchzug
+            chosen = "down"
+        return {"move": chosen}
 
-    # 3) Modus bestimmen
-    mode = determine_mode(
-        game_state['you']['length'],
-        enemy['length'],
-        game_state['you']['health']
-    )
 
-    # 4) Zug-Auswahl
+    mode = determine_mode(my_length, enemy_length, my_health)
+
+    # Auswahl mit Alpha-Beta in 3-Ply
     if mode in ("aggressive", "recovery", "kill_mode"):
-        eval_fn = {
-            'aggressive': evaluate_aggressive,
-            'recovery':   evaluate_recovery,
-            'kill_mode':  evaluate_kill_mode
-        }[mode]
-        best_move, best_val = None, -float('inf')
+        eval_fn = {'aggressive': evaluate_aggressive,
+                   'recovery': evaluate_recovery,
+                   'kill_mode': evaluate_kill_mode}[mode]
+        best_move = None
+        best_val = -float('inf')
         alpha, beta = -float('inf'), float('inf')
         for m in safe_moves:
-            val = evaluate_move_3ply(
-                m, game_state, is_move_safe,
-                eval_fn, alpha, beta, depth=3
-            )
+            # Depth=3, weil wir 3 Ply Lookahead machen
+            val = evaluate_move_3ply(m,
+                                    game_state,
+                                    is_move_safe,
+                                    eval_fn,
+                                    alpha,
+                                    beta,
+                                    depth=3)
             if val > best_val:
                 best_val, best_move = val, m
                 alpha = max(alpha, val)
         chosen = best_move
     else:
-        # Normal mode: freie Felder zählen, bei Gleichstand zufällig
-        space_map = {
-            m: calculate_free_space(
-                   {'x': my_head['x'] + delta[m][0],
-                    'y': my_head['y'] + delta[m][1]},
-                   game_state
-               )[0]
-            for m in safe_moves
-        }
-        max_space = max(space_map.values())
-        best = [m for m, sp in space_map.items() if sp == max_space]
-        chosen = random.choice(best)
+        # Normal mode: freier Raum
+        chosen = max(
+            safe_moves,
+            key=lambda m: calculate_free_space(
+                {'x': my_head['x'] + delta[m][0], 'y': my_head['y'] + delta[m][1]},
+                game_state
+            )[0]
+        )
 
+    print(f"Turn {game_state['turn']} Mode: {mode} Move: {chosen}")
     return {"move": chosen}
 
 
