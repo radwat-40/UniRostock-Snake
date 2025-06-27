@@ -39,8 +39,9 @@ def init_hash(state):
 
 # === GAME START ===
 def start(game_state: typing.Dict):
-    """Spielstart: Zobrist-Tables initialisieren und initialen Hash setzen."""
-    global current_hash
+    """Spielstart: Zobrist-Tables initialisieren, TT leeren und initialen Hash setzen."""
+    global current_hash, transposition_table
+    transposition_table.clear()  # Alte Einträge entfernen
     # Stelle sicher, dass ZOB_SNAKE für alle IDs da ist
     for snake in game_state['board']['snakes']:
         sid = snake['id']
@@ -118,29 +119,58 @@ def evaluate_move_3ply(start_move: str,
                        depth: int) -> float:
     """
     3-Ply Lookahead mit Zobrist-Hash als TT-Key.
+    Wir wenden den Start-Move zuerst an, dann prüfen wir Cache,
+    simulieren die restlichen Züge und am Ende undo_moves().
     """
     global current_hash
-    original_hash = current_hash
-    alpha_orig, beta_orig = alpha, beta
 
-    # **Hier geändert**: Verwende Integer-Hash statt String
+    alpha_orig, beta_orig = alpha, beta
+    # 1) Apply den ersten Zug und aktualisiere current_hash
+    changes = apply_moves(game_state, {game_state['you']['id']: start_move})
+    
+    # 2) Jetzt den Key aus aktuellem Hash und Tiefe bilden
     key = (current_hash, depth)
     cached = lookup_in_tt(key, depth, alpha, beta)
     if cached is not None:
+        undo_moves(game_state, changes)
         return cached
 
-    # … Rest bleibt unverändert …
-    # Am Ende speichern wir ebenfalls mit demselben Key:
-    val = best_score
+    # 3) Restliches 2-Ply-Minimax (pseudo-Code skizziert)
+    best_score = -float('inf')
+    # Gegnerzug
+    for enemy_move in [m for m, ok in is_move_safe.items() if ok]:
+        # apply enemy move
+        changes2 = apply_moves(game_state, {get_enemy_id(game_state): enemy_move})
+        # unser zweiter Zug
+        for our_move in [m for m, ok in is_move_safe.items() if ok]:
+            changes3 = apply_moves(game_state, {game_state['you']['id']: our_move})
+            score = evaluation_function(our_move, game_state, is_move_safe)
+            undo_moves(game_state, changes3)
+            # Alpha-Beta
+            if score > best_score:
+                best_score = score
+                alpha = max(alpha, score)
+            if alpha >= beta:
+                # Prune
+                undo_moves(game_state, changes2)
+                undo_moves(game_state, changes)
+                store_in_tt(key, depth, best_score, 'LOWERBOUND')
+                return best_score
+        undo_moves(game_state, changes2)
+
+    # 4) TT-Eintrag speichern
     if best_score <= alpha_orig:
         etype = 'UPPERBOUND'
     elif best_score >= beta_orig:
         etype = 'LOWERBOUND'
     else:
         etype = 'EXACT'
-    store_in_tt(key, depth, val, etype)
-    current_hash = original_hash
-    return val
+    store_in_tt(key, depth, best_score, etype)
+
+    # 5) Cleanup: ersten Move zurücknehmen
+    undo_moves(game_state, changes)
+    return best_score
+
            
 def lookup_in_tt(hash_key, depth, alpha, beta):
     entry = transposition_table.get(hash_key)
