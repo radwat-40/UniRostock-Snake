@@ -130,7 +130,22 @@ def evaluate_move_3ply(start_move: str,
         if sid == game_state["you"]["id"]:
             move_dict[sid] = start_move
         else:
-            move_dict[sid] = random.choice(["up", "down", "left", "right"])  # Gegner simulieren
+                    # smarterer Gegnerzug: nur gültige Moves
+            enemy_snake = snake
+            ex, ey = enemy_snake['body'][0]['x'], enemy_snake['body'][0]['y']
+            enemy_options = []
+
+            for dir_key, (dx, dy) in delta.items():
+                nx, ny = ex + dx, ey + dy
+                if 0 <= nx < game_state['board']['width'] and 0 <= ny < game_state['board']['height']:
+                    if (nx, ny) not in {(seg['x'], seg['y']) for s in game_state['board']['snakes'] for seg in s['body']}:
+                        enemy_options.append(dir_key)
+
+            if enemy_options:
+                move_dict[sid] = random.choice(enemy_options)
+            else:
+                move_dict[sid] = "up"  # Fallback
+
 
     changes = apply_moves(game_state, move_dict)
 
