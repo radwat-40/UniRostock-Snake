@@ -1,6 +1,3 @@
-das gleiche bitte nochmal für folgenden code:
-
-
 
 
 import random
