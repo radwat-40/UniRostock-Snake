@@ -116,28 +116,48 @@ def evaluate_move_3ply(start_move: str,
                        alpha: float,
                        beta: float,
                        depth: int) -> float:
-    """
-    3-Ply Lookahead mit Zobrist-Hash als TT-Key.
-    """
     alpha_orig, beta_orig = alpha, beta
-
-    # **Hier geändert**: Verwende Integer-Hash statt String
     key = (current_hash, depth)
     cached = lookup_in_tt(key, depth, alpha, beta)
     if cached is not None:
         return cached
 
-    # … Rest bleibt unverändert …
-    # Am Ende speichern wir ebenfalls mit demselben Key:
-    val = best_score
+    # Anfangswerte
+    best_score = -float("inf")
+    move_dict = {}
+    for snake in game_state["board"]["snakes"]:
+        sid = snake["id"]
+        if sid == game_state["you"]["id"]:
+            move_dict[sid] = start_move
+        else:
+            move_dict[sid] = random.choice(["up", "down", "left", "right"])  # Gegner simulieren
+
+    changes = apply_moves(game_state, move_dict)
+
+    if depth == 0:
+        best_score = evaluation_function(start_move, game_state["you"]["body"][0], game_state, is_move_safe)
+    else:
+        for next_move in delta:
+            score = evaluate_move_3ply(next_move, game_state, is_move_safe, evaluation_function, alpha, beta, depth - 1)
+            if score > best_score:
+                best_score = score
+            alpha = max(alpha, score)
+            if alpha >= beta:
+                break
+
+    undo_moves(game_state, changes)
+
+    # Speichern
     if best_score <= alpha_orig:
         etype = 'UPPERBOUND'
     elif best_score >= beta_orig:
         etype = 'LOWERBOUND'
     else:
         etype = 'EXACT'
-    store_in_tt(key, depth, val, etype)
-    return val
+    store_in_tt(key, depth, best_score, etype)
+
+    return best_score
+
            
 def lookup_in_tt(hash_key, depth, alpha, beta):
     entry = transposition_table.get(hash_key)
