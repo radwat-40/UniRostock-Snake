@@ -1,4 +1,4 @@
-also dieser code für eine schlange bei battle snake ist in einem 11x11 spielfeld für ein 1 vs 1 game nicht unter 500s?
+
 import random
 import typing
 import copy
