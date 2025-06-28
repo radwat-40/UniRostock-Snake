@@ -82,33 +82,16 @@ def determine_mode(my_length, enemy_length, my_health):
         return "normal"
 
 def simulate_board_state(game_state, move_dict):
-    """
-    Simuliert einen neuen GameState basierend auf den übergebenen Zügen.
-    move_dict: {"snake_id": move} enthält die Züge aller Schlangen
-    """
-    # Tiefe Kopie des aktuellen Game-State
     new_state = copy.deepcopy(game_state)
 
-    # Erst alle Köpfe verschieben
     for snake in new_state['board']['snakes']:
         snake_id = snake['id']
-        move = move_dict[snake_id]
+        # NEU: default fallback auf "up" für Snakes ohne Move-Angabe
+        move = move_dict.get(snake_id, "up")
         dx, dy = delta[move]
         old_head = snake['body'][0]
         new_head = {"x": old_head["x"] + dx, "y": old_head["y"] + dy}
         snake['body'].insert(0, new_head)
-
-    # Dann Schwänze kürzen, außer sie fressen Food
-    food_positions = {(f['x'], f['y']) for f in new_state['board']['food']}
-    for snake in new_state['board']['snakes']:
-        head_pos = (snake['body'][0]['x'], snake['body'][0]['y'])
-        if head_pos in food_positions:
-            # Food gefressen → Essen entfernen
-            new_state['board']['food'] = [f for f in new_state['board']['food'] if not (f['x'] == head_pos[0] and f['y'] == head_pos[1])]
-        else:
-            # Kein Food → Schwanz entfernen
-            snake['body'].pop()
-
     return new_state
 
 def calculate_free_space(my_head, game_state, max_limit=50):
