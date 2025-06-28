@@ -232,12 +232,10 @@ def evaluate_move_2ply(start_move: str,
         return evaluation_function(start_move, my_head, state_after_first, is_move_safe)
 
     enemy_id = enemies[0]['id']
-
     worst_case_score = float("inf")
 
     for enemy_move in delta:
         state_after_enemy = simulate_board_state(state_after_first, {enemy_id: enemy_move})
-
         score = evaluation_function(start_move, my_head, state_after_enemy, is_move_safe)
 
         if score < worst_case_score:
@@ -247,7 +245,6 @@ def evaluate_move_2ply(start_move: str,
             break
         beta = min(beta, worst_case_score)
 
-    # Transposition table speichern
     if worst_case_score <= alpha_orig:
         etype = 'UPPERBOUND'
     elif worst_case_score >= beta_orig:
@@ -257,6 +254,7 @@ def evaluate_move_2ply(start_move: str,
     store_in_tt(key, depth, worst_case_score, etype)
 
     return worst_case_score
+
 
 
 
