@@ -204,15 +204,20 @@ def avoid_collisions(my_head, my_body, snakes, is_move_safe, board_width, board_
             if segment["x"] == my_head["x"] and segment["y"] == my_head["y"] + 1: is_move_safe["up"] = False
             if segment["x"] == my_head["x"] and segment["y"] == my_head["y"] - 1: is_move_safe["down"] = False
 
-def evaluate_move_2ply(start_move: str,
+def evaluate_move_3ply(start_move: str,
                        game_state: typing.Dict,
                        is_move_safe: typing.Dict[str, bool],
                        evaluation_function: typing.Callable,
                        alpha: float,
                        beta: float,
                        depth: int) -> float:
+    """
+    Führt 3-Ply-Lookahead mit Alpha-Beta-Pruning und Transposition Table durch.
+    """
+    # Originalwerte merken für Bound-Erkennung
     alpha_orig, beta_orig = alpha, beta
 
+    # 1. Transposition-Cache prüfen
     key = board_to_key(game_state) + f"#d{depth}"
     entry = lookup_in_tt(key, depth, alpha, beta)
     if entry is not None:
@@ -221,22 +226,31 @@ def evaluate_move_2ply(start_move: str,
     my_id = game_state['you']['id']
     my_head = game_state['you']['body'][0]
 
+    # 2. Eigene Zug-Sicherheit prüfen
     if not is_move_safe[start_move]:
         return -9999
 
+    # 3. Ersten Zug simulieren
     state_after_first = simulate_board_state(game_state, {my_id: start_move})
+
+    # Gegner ermitteln
     enemies = [s for s in state_after_first['board']['snakes'] if s['id'] != my_id]
     if not enemies:
+        # kein Gegner mehr → reine Heuristik
         return evaluation_function(start_move, my_head, game_state, is_move_safe)
     enemy_id = enemies[0]['id']
 
     best_score = -float('inf')
 
+    # 4. Gegnerantworten (Minimizer)
     for enemy_move in delta:
+        # Beta-Pruning
         if best_score >= beta:
             break
 
         sim_state = simulate_board_state(game_state, {my_id: start_move, enemy_id: enemy_move})
+
+        # 5. Eigene Folgezüge (Maximizer)
         my_snake = next(s for s in sim_state['board']['snakes'] if s['id'] == my_id)
         follow_head = my_snake['body'][0]
 
@@ -248,18 +262,31 @@ def evaluate_move_2ply(start_move: str,
                          sim_state['board']['width'],
                          sim_state['board']['height'],
                          my_id)
-        response_score = max(
-            evaluation_function(m, follow_head, sim_state, safe_follow)
-            for m, ok in safe_follow.items() if ok
-        ) if any(safe_follow.values()) else -9999
+        follow_moves = [m for m, ok in safe_follow.items() if ok]
 
+        if not follow_moves:
+            response_score = -9999
+        else:
+            response_score = -float('inf')
+            for follow in follow_moves:
+                # Inneres Pruning
+                if response_score >= beta:
+                    break
+                val = evaluation_function(follow, follow_head, sim_state, safe_follow)
+                if val > response_score:
+                    response_score = val
+
+        # Gegner wählt Zug, der unseren Score minimiert
         if best_score == -float('inf') or response_score < best_score:
             best_score = response_score
 
+        # Alpha-Beta-Update
         if best_score <= alpha:
+            # Alpha-Cutoff
             break
         alpha = max(alpha, best_score)
 
+    # 6. Bound-Typ ermitteln und cachen
     if best_score <= alpha_orig:
         etype = 'UPPERBOUND'
     elif best_score >= beta_orig:
@@ -269,7 +296,6 @@ def evaluate_move_2ply(start_move: str,
     store_in_tt(key, depth, best_score, etype)
 
     return best_score
-
 
 # === EVALUATION ===
 def evaluate_aggressive(move, my_head, game_state, is_move_safe):
@@ -370,8 +396,35 @@ def move(game_state: typing.Dict) -> typing.Dict:
     # Occupied-Set einmalig
     occupied = {(seg['x'], seg['y']) for s in snakes for seg in s['body']}
 
+    # Sichere Züge initialisieren
+    is_move_safe = {move: True for move in delta}
+    avoid_collisions(my_head, my_body, snakes, is_move_safe, board_width, board_height, my_id)
+
+    # Modus bestimmen
+    mode = determine_mode(my_length, enemy_length, my_health)
+    if mode == "aggressive":
+        eval_func = evaluate_aggressive
+    elif mode == "recovery":
+        eval_func = evaluate_recovery
+    elif mode == "kill_mode":
+        eval_func = evaluate_kill_mode
+    else:
+        eval_func = evaluate_aggressive  # fallback
+
+    # 3-Ply Search mit Bewertung
+    best_score = -float('inf')
+    best_move = "up"  # Default fallback
+
+    for m in delta.keys():
+        score = evaluate_move_3ply(m, game_state, is_move_safe, eval_func, alpha=-float('inf'), beta=float('inf'), depth=3)
+        if score > best_score:
+            best_score = score
+            best_move = m
+
+    return {"move": best_move}
+
     # Kollisionscheck
-    is_move_safe = {m: True for m in delta}
+    """is_move_safe = {m: True for m in delta}
     avoid_collisions(my_head, my_body, snakes, is_move_safe, board_width, board_height, my_id)
     safe_moves = [m for m, ok in is_move_safe.items() if ok]
     if not safe_moves:
@@ -389,13 +442,13 @@ def move(game_state: typing.Dict) -> typing.Dict:
         alpha, beta = -float('inf'), float('inf')
         for m in safe_moves:
             # Depth=3, weil wir 3 Ply Lookahead machen
-            val = evaluate_move_2ply(m,
-                         game_state,
-                         is_move_safe,
-                         eval_fn,
-                         alpha,
-                         beta,
-                         depth=2)
+            val = evaluate_move_3ply(m,
+                                    game_state,
+                                    is_move_safe,
+                                    eval_fn,
+                                    alpha,
+                                    beta,
+                                    depth=3)
             if val > best_val:
                 best_val, best_move = val, m
                 alpha = max(alpha, val)
@@ -411,8 +464,8 @@ def move(game_state: typing.Dict) -> typing.Dict:
         )
 
     print(f"Turn {game_state['turn']} Mode: {mode} Move: {chosen}")
-    return {"move": chosen}
-
+    return {"move": chosen} 
+"""
 
 # === START SERVER ===
 if __name__ == "__main__":
