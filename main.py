@@ -382,53 +382,34 @@ def evaluate_kill_mode(move, my_head, game_state, is_move_safe):
     return score
 # === MOVE ===
 def move(game_state: typing.Dict) -> typing.Dict:
-    board_width = game_state['board']['width']
-    board_height = game_state['board']['height']
-    my_head = game_state['you']['body'][0]
-    my_body = game_state['you']['body']
-    my_length = game_state['you']['length']
-    my_health = game_state['you']['health']
-    my_id = game_state['you']['id']
-    snakes = game_state['board']['snakes']
-    enemy = [s for s in snakes if s['id'] != my_id][0]
-    enemy_length = enemy['length']
+    board = game_state['board']
+    snakes = board['snakes']
+    you = game_state['you']
+    my_id = you['id']
+    my_health = you['health']
+    my_body = you['body']
+    my_head = my_body[0]
+    my_length = len(my_body)
+    board_width = board['width']
+    board_height = board['height']
 
-    # Occupied-Set einmalig
-    occupied = {(seg['x'], seg['y']) for s in snakes for seg in s['body']}
+    delta = {
+        'up': (0, 1),
+        'down': (0, -1),
+        'left': (-1, 0),
+        'right': (1, 0),
+    }
 
-    # Sichere Züge initialisieren
-    is_move_safe = {move: True for move in delta}
-    avoid_collisions(my_head, my_body, snakes, is_move_safe, board_width, board_height, my_id)
+    # Enemy length
+    enemy_length = max([len(s['body']) for s in snakes if s['id'] != my_id] or [0])
 
-    # Modus bestimmen
-    mode = determine_mode(my_length, enemy_length, my_health)
-    if mode == "aggressive":
-        eval_func = evaluate_aggressive
-    elif mode == "recovery":
-        eval_func = evaluate_recovery
-    elif mode == "kill_mode":
-        eval_func = evaluate_kill_mode
-    else:
-        eval_func = evaluate_aggressive  # fallback
-
-    # 3-Ply Search mit Bewertung
-    best_score = -float('inf')
-    best_move = "up"  # Default fallback
-
-    for m in delta.keys():
-        score = evaluate_move_3ply(m, game_state, is_move_safe, eval_func, alpha=-float('inf'), beta=float('inf'), depth=3)
-        if score > best_score:
-            best_score = score
-            best_move = m
-
-    return {"move": best_move}
-
+    # --- Început logică alegere mutare ---
     # Kollisionscheck
-    """is_move_safe = {m: True for m in delta}
+    is_move_safe = {m: True for m in delta}
     avoid_collisions(my_head, my_body, snakes, is_move_safe, board_width, board_height, my_id)
     safe_moves = [m for m, ok in is_move_safe.items() if ok]
     if not safe_moves:
-        return {"move": "down"}
+        return {"move": "down"}  # fallback în caz că nu există nicio mutare sigură
 
     mode = determine_mode(my_length, enemy_length, my_health)
 
@@ -441,20 +422,21 @@ def move(game_state: typing.Dict) -> typing.Dict:
         best_val = -float('inf')
         alpha, beta = -float('inf'), float('inf')
         for m in safe_moves:
-            # Depth=3, weil wir 3 Ply Lookahead machen
-            val = evaluate_move_3ply(m,
-                                    game_state,
-                                    is_move_safe,
-                                    eval_fn,
-                                    alpha,
-                                    beta,
-                                    depth=3)
+            val = evaluate_move_3ply(
+                m,
+                game_state,
+                is_move_safe,
+                eval_fn,
+                alpha,
+                beta,
+                depth=3
+            )
             if val > best_val:
                 best_val, best_move = val, m
                 alpha = max(alpha, val)
         chosen = best_move
     else:
-        # Normal mode: freier Raum
+        # Normal mode: alege mutarea care oferă cel mai mult spațiu liber
         chosen = max(
             safe_moves,
             key=lambda m: calculate_free_space(
@@ -464,8 +446,7 @@ def move(game_state: typing.Dict) -> typing.Dict:
         )
 
     print(f"Turn {game_state['turn']} Mode: {mode} Move: {chosen}")
-    return {"move": chosen} 
-"""
+    return {"move": chosen}
 
 # === START SERVER ===
 if __name__ == "__main__":
