@@ -1,162 +1,132 @@
-import os
+import typing
 import random
-from flask import Flask, request, jsonify
 from collections import deque
 
-app = Flask(__name__)
-
-# Constants
-BOARD_SIZE = 11
-MAX_HEALTH = 100
-
-# Directions and vector mapping
-MOVES = {
-    'up': (0, 1),
-    'down': (0, -1),
-    'left': (-1, 0),
-    'right': (1, 0)
+# === MOVE DELTA ===
+delta = {
+    "up":    (0, 1),
+    "down":  (0, -1),
+    "left":  (-1, 0),
+    "right": (1, 0)
 }
 
-# Utility functions
+# === MAIN LOGIC ===
+def move(game_state: typing.Dict) -> typing.Dict:
+    board = game_state['board']
+    you = game_state['you']
 
-def in_bounds(x, y):
-    return 0 <= x < BOARD_SIZE and 0 <= y < BOARD_SIZE
+    my_head = you['body'][0]
+    my_health = you['health']
+    my_length = you['length']
+    board_width = board['width']
+    board_height = board['height']
+    enemy = [s for s in board['snakes'] if s['id'] != you['id']][0]
 
+    # === Determine Mode ===
+    mode = "neutral"
+    if my_health < 40 or my_length <= enemy['length']:
+        mode = "food_hunter"
+    elif my_length >= enemy['length'] + 2:
+        mode = "aggressive"
 
-def get_neighbors(pos):
-    x, y = pos
-    for dx, dy in MOVES.values():
-        nx, ny = x + dx, y + dy
-        if in_bounds(nx, ny):
-            yield (nx, ny)
-
-
-def flood_fill(start, blocked):
-    """Returns the number of reachable cells from start and count of branches."""
-    visited = set([start])
-    queue = deque([start])
-    branches = 0
-    while queue:
-        cell = queue.popleft()
-        neighbors = [n for n in get_neighbors(cell) if n not in blocked and n not in visited]
-        if len(neighbors) > 1:
-            branches += 1
-        for n in neighbors:
-            visited.add(n)
-            queue.append(n)
-    return len(visited), branches
-
-
-def choose_move(data):
-    board = data['board']
-    you = data['you']
-    foes = [s for s in board['snakes'] if s['id'] != you['id']]
-    foe = foes[0]  # 1v1
-
-    head = tuple(you['head'])
-    health = you['health']
-    length = len(you['body'])
-    foe_head = tuple(foe['head'])
-    foe_length = len(foe['body'])
-
-    # Build base blocked set (including all snake bodies)
-    blocked_base = set()
-    for snake in board['snakes']:
-        for part in snake['body']:
-            blocked_base.add(tuple(part))
-
-    # Tail handling: unless eating, the last tail segment becomes free
-    tail = tuple(you['body'][-1])
-    apple_positions = {tuple(a) for a in board['food']}
-
-    # Determine mode
-    if length < foe_length or health < 40:
-        mode = 'food_hunter'
-    elif length >= foe_length + 2:
-        mode = 'aggressive'
-    else:
-        mode = 'neutral'
-
-    best_score = float('-inf')
-    best_moves = []
-
-    # Evaluate each potential move
-    for move, (dx, dy) in MOVES.items():
-        new_head = (head[0] + dx, head[1] + dy)
-        # Check wall collision
-        if not in_bounds(*new_head):
+    # === Determine Safe Moves ===
+    safe_moves = []
+    for m, (dx, dy) in delta.items():
+        new_x = my_head['x'] + dx
+        new_y = my_head['y'] + dy
+        if not (0 <= new_x < board_width and 0 <= new_y < board_height):
             continue
-        # Build dynamic blocked for this move
-        blocked = set(blocked_base)
-        # If not eating apple, tail moves -> free
-        if new_head not in apple_positions:
-            blocked.discard(tail)
-        # Now if new head collides with body
-        if new_head in blocked:
+        if is_occupied(new_x, new_y, board['snakes']):
             continue
+        safe_moves.append(m)
 
-        # Flood-fill for both snakes
-        my_space, my_branches = flood_fill(new_head, blocked)
-        foe_space, _ = flood_fill(foe_head, blocked)
+    if not safe_moves:
+        return {"move": "up"}  # fallback
 
-        # Distance metrics
-        apple_dist = (min(abs(new_head[0]-ax) + abs(new_head[1]-ay) for ax, ay in apple_positions)
-                      if apple_positions else BOARD_SIZE*2)
-        foe_dist = abs(new_head[0] - foe_head[0]) + abs(new_head[1] - foe_head[1])
+    # === Score each move ===
+    best_score = -9999
+    best_move = safe_moves[0]
 
-        # Scoring
+    for move in safe_moves:
+        dx, dy = delta[move]
+        new_head = {'x': my_head['x'] + dx, 'y': my_head['y'] + dy}
+        flood_score, quality = flood_fill(new_head, board, limit=50)
         score = 0
-        if mode == 'food_hunter':
-            score += (BOARD_SIZE*2 - apple_dist) * 1.5
-            score += my_space * 1.0
-            score -= foe_dist * 1.0
-        elif mode == 'aggressive':
-            score += my_space * 2
-            score -= foe_space * 1.5
-            # Head-on bonus
-            if foe_dist == 1 and length > foe_length:
-                score += 50
-        else:  # neutral
-            score += my_space * 1.2
-            score += my_branches * 1.0
-            score += max(0, (BOARD_SIZE*2 - apple_dist)) * 0.5
 
-        # Track best
+        if mode == "food_hunter":
+            dist = closest_food_distance(new_head, board['food'])
+            score += (50 - dist) * 2 if dist is not None else 0
+            score += flood_score + quality
+        elif mode == "aggressive":
+            enemy_score, _ = flood_fill(enemy['body'][0], board, limit=50)
+            score += flood_score * 2 - enemy_score * 3 + quality
+        else:  # neutral
+            score += flood_score + quality
+
         if score > best_score:
             best_score = score
-            best_moves = [move]
-        elif score == best_score:
-            best_moves.append(move)
+            best_move = move
 
-    # If no safe move, fallback
-    if not best_moves:
-        return random.choice(list(MOVES.keys()))
-    return random.choice(best_moves)
+    return {"move": best_move}
 
-# API endpoints
-@app.route('/', methods=['GET'])
-def handle_index():
-    return jsonify({
-        'apiversion': '1',
-        'author': 'Püppchen',
-        'color': '#ff0000',
-        'head': 'evil',
-        'tail': 'curled'
-    })
 
-@app.route('/start', methods=['POST'])
-def handle_start():
-    return jsonify({})
+# === HELPERS ===
+def is_occupied(x, y, snakes):
+    for s in snakes:
+        for b in s['body']:
+            if b['x'] == x and b['y'] == y:
+                return True
+    return False
 
-@app.route('/move', methods=['POST'])
-def handle_move():
-    move = choose_move(request.get_json())
-    return jsonify({'move': move})
+def flood_fill(start: dict, board: dict, limit: int = 50):
+    visited = set()
+    q = deque()
+    q.append((start['x'], start['y']))
+    visited.add((start['x'], start['y']))
 
-@app.route('/end', methods=['POST'])
-def handle_end():
-    return jsonify({})
+    board_w, board_h = board['width'], board['height']
+    snakes = board['snakes']
+    count = 0
+    quality = 0
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', '8000'))
-    app.run(host='0.0.0.0', port=port)
+    while q and count < limit:
+        x, y = q.popleft()
+        count += 1
+        free_neighbors = 0
+
+        for dx, dy in delta.values():
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < board_w and 0 <= ny < board_h and (nx, ny) not in visited and not is_occupied(nx, ny, snakes):
+                visited.add((nx, ny))
+                q.append((nx, ny))
+                free_neighbors += 1
+
+        quality += free_neighbors
+
+    return count, quality
+
+def closest_food_distance(pos, food_list):
+    if not food_list:
+        return None
+    return min(abs(pos['x'] - f['x']) + abs(pos['y'] - f['y']) for f in food_list)
+
+
+# === SERVER ENTRY ===
+def info() -> typing.Dict:
+    return {
+        "apiversion": "1",
+        "author": "flood-fighter",
+        "color": "#11cc99",
+        "head": "beluga",
+        "tail": "bolt"
+    }
+
+def start(game_state: typing.Dict):
+    print("Game started")
+
+def end(game_state: typing.Dict):
+    print("Game over")
+
+if __name__ == "__main__":
+    from server import run_server
+    run_server({"info": info, "start": start, "move": move, "end": end})
