@@ -82,17 +82,80 @@ def determine_mode(my_length, enemy_length, my_health):
         return "recovery"
 
 def simulate_board_state(game_state, move_dict):
+    """
+    Erzeugt einen neuen Spielzustand basierend auf den übergebenen Zügen.
+    Berücksichtigt: Bewegung, Apfelfressen, Tail-Entfernung, Snake-Death.
+    """
     new_state = copy.deepcopy(game_state)
+    board_width = new_state['board']['width']
+    board_height = new_state['board']['height']
+    food_positions = {(f['x'], f['y']) for f in new_state['board']['food']}
 
+    # Schritt 1: Alle Snakes bewegen
+    new_heads = {}
     for snake in new_state['board']['snakes']:
-        snake_id = snake['id']
-        # NEU: default fallback auf "up" für Snakes ohne Move-Angabe
-        move = move_dict.get(snake_id, "up")
+        sid = snake['id']
+        move = move_dict.get(sid, "up")
         dx, dy = delta[move]
         old_head = snake['body'][0]
-        new_head = {"x": old_head["x"] + dx, "y": old_head["y"] + dy}
+        new_head = {'x': old_head['x'] + dx, 'y': old_head['y'] + dy}
         snake['body'].insert(0, new_head)
+        snake['health'] -= 1  # health sinkt um 1 pro Zug
+        new_heads[sid] = new_head
+
+    # Schritt 2: Essen prüfen
+    new_food = []
+    for f in new_state['board']['food']:
+        eaten = False
+        for snake in new_state['board']['snakes']:
+            if snake['body'][0]['x'] == f['x'] and snake['body'][0]['y'] == f['y']:
+                snake['health'] = 100
+                eaten = True
+                break
+        if not eaten:
+            new_food.append(f)
+    new_state['board']['food'] = new_food
+
+    # Schritt 3: Tail entfernen, wenn kein Apfel gegessen
+    for snake in new_state['board']['snakes']:
+        head = snake['body'][0]
+        if (head['x'], head['y']) not in food_positions:
+            snake['body'].pop()
+
+    # Schritt 4: Kollisionen prüfen
+    occupied = {}  # Positionen nach Bewegung
+    for snake in new_state['board']['snakes']:
+        for i, segment in enumerate(snake['body']):
+            pos = (segment['x'], segment['y'])
+            if pos not in occupied:
+                occupied[pos] = []
+            occupied[pos].append((snake['id'], i))
+
+    surviving_snakes = []
+    for snake in new_state['board']['snakes']:
+        head = snake['body'][0]
+        sid = snake['id']
+        # Wandkollision
+        if not (0 <= head['x'] < board_width and 0 <= head['y'] < board_height):
+            continue
+        # Health-Kollaps
+        if snake['health'] <= 0:
+            continue
+        # Kollision mit Körper
+        count = occupied.get((head['x'], head['y']), [])
+        if len(count) > 1:
+            # Head-to-head: nur Snake mit längstem Körper überlebt
+            max_len = max(len([s for s in new_state['board']['snakes'] if s['id'] == sid][0]['body']) for sid2, _ in count)
+            if len(snake['body']) < max_len:
+                continue
+            elif len(snake['body']) == max_len:
+                # beide sterben, wird oben durch Länge >1 behandelt
+                pass
+        surviving_snakes.append(snake)
+
+    new_state['board']['snakes'] = surviving_snakes
     return new_state
+
 
 def calculate_free_space(my_head, game_state, max_limit=50):
     board_width = game_state['board']['width']
@@ -209,25 +272,33 @@ def evaluate_move_2ply(start_move: str,
     if not is_move_safe[start_move]:
         return -9999
 
-    state_after_first = simulate_board_state(game_state, {my_id: start_move})
-    enemies = [s for s in state_after_first['board']['snakes'] if s['id'] != my_id]
+    enemies = [s for s in game_state['board']['snakes'] if s['id'] != my_id]
     if not enemies:
-        return evaluation_function(start_move, my_head, state_after_first, is_move_safe)
+        # keine Gegner? einfache Bewertung nach deinem Zug
+        move_dict = {my_id: start_move}
+        state_after = simulate_board_state(game_state, move_dict)
+        return evaluation_function(start_move, my_head, state_after, is_move_safe)
 
     enemy_id = enemies[0]['id']
     worst_case_score = float("inf")
 
     for enemy_move in delta:
-        state_after_enemy = simulate_board_state(state_after_first, {enemy_id: enemy_move})
-        score = evaluation_function(start_move, my_head, state_after_enemy, is_move_safe)
+        move_dict = {
+            my_id: start_move,
+            enemy_id: enemy_move
+        }
+        state_after_both = simulate_board_state(game_state, move_dict)
+        score = evaluation_function(start_move, my_head, state_after_both, is_move_safe)
 
         if score < worst_case_score:
             worst_case_score = score
 
+        # Alpha-Beta-Pruning (Minimizing opponent response)
         if worst_case_score <= alpha:
             break
         beta = min(beta, worst_case_score)
 
+    # Speichern in Transposition Table
     if worst_case_score <= alpha_orig:
         etype = 'UPPERBOUND'
     elif worst_case_score >= beta_orig:
@@ -237,6 +308,7 @@ def evaluate_move_2ply(start_move: str,
     store_in_tt(key, depth, worst_case_score, etype)
 
     return worst_case_score
+
 
 
 
