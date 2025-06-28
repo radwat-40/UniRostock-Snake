@@ -286,7 +286,7 @@ def evaluate_move_3ply(start_move: str,
             )
 
         # Update Best-Score
-        best_score = response_score if best_score == -float('inf') or response_score < best_score else best_score
+        best_score = response_score if best_score == -float('inf') or response_score > best_score else best_score
 
         # Undo Gegnerzug
         undo_moves(game_state, changes2)

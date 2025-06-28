@@ -69,9 +69,7 @@ def board_to_key(state):
     return "|".join(parts)
 
 def determine_mode(my_length, enemy_length, my_health):
-    if my_health < 25:
-        return "emergency"
-    elif my_health < 40 or my_length <= enemy_length + 1:
+    if my_health < 40 or my_length <= enemy_length + 1:
         return "recovery"
     elif my_length >= enemy_length + 5:
         return "kill_mode"
@@ -80,37 +78,25 @@ def determine_mode(my_length, enemy_length, my_health):
     else:
         return "normal"
 
-def apply_moves(game_state: typing.Dict, move_dict: typing.Dict[str, str]) -> typing.List[tuple]:
-    """
-    Wendet die in move_dict spezifizierten Züge auf game_state an.
-    Gibt eine Liste von Änderungen zurück, um später undo_moves() zu ermöglichen.
-    Jede Änderung ist ein Tupel: (snake_id, hat_gefressen: bool, removed_segment)
-    """
+def apply_moves(game_state: typing.Dict, move_dict: typing.Dict[str,str]) -> typing.List[tuple]:
     board = game_state['board']
     food_set = {(f['x'], f['y']) for f in board['food']}
     changes = []
 
-    # Nur die Snakes bewegen, für die ein Zug im move_dict steht
     for sid, mv in move_dict.items():
-        # Snake-Objekt finden
         snake = next(s for s in board['snakes'] if s['id'] == sid)
         dx, dy = delta[mv]
         head = snake['body'][0]
         new_head = {"x": head["x"] + dx, "y": head["y"] + dy}
-
-        # Kopf einschieben
         snake['body'].insert(0, new_head)
 
-        # Food-Check
         if (new_head["x"], new_head["y"]) in food_set:
-            # gefressen: Food-Objekt entfernen und als Änderung speichern
             for i, f in enumerate(board['food']):
                 if (f['x'], f['y']) == (new_head["x"], new_head["y"]):
                     removed = board['food'].pop(i)
                     changes.append((sid, True, removed))
                     break
         else:
-            # kein Food: Schwanzsegment entfernen und Änderung speichern
             tail = snake['body'].pop()
             changes.append((sid, False, tail))
 
@@ -287,7 +273,8 @@ def evaluate_move_3ply(start_move: str,
             )
 
         # Update Best-Score
-        best_score = response_score if best_score == -float('inf') or response_score < best_score else best_score
+        best_score = response_score if best_score == -float('inf') or response_score > best_score else best_score
+
 
         # Undo Gegnerzug
         undo_moves(game_state, changes2)
