@@ -79,7 +79,7 @@ def determine_mode(my_length, enemy_length, my_health):
     elif my_length >= enemy_length + 2:
         return "aggressive"
     else:
-        return "normal"
+        return "recovery"
 
 def simulate_board_state(game_state, move_dict):
     new_state = copy.deepcopy(game_state)
