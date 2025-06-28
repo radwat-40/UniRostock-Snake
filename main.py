@@ -80,20 +80,20 @@ def determine_mode(my_length, enemy_length, my_health):
     else:
         return "normal"
 
-def apply_moves(game_state: typing.Dict, move_dict: typing.Dict[str,str]) -> typing.List[tuple]:
+def apply_moves(game_state: typing.Dict, move_dict: typing.Dict[str, str]) -> typing.List[tuple]:
     """
-    Wendet alle Züge in move_dict direkt auf game_state an.
-    Gibt eine Liste von Änderungen zurück, mit der man später undo_moves() aufrufen kann.
+    Wendet die in move_dict spezifizierten Züge auf game_state an.
+    Gibt eine Liste von Änderungen zurück, um später undo_moves() zu ermöglichen.
     Jede Änderung ist ein Tupel: (snake_id, hat_gefressen: bool, removed_segment)
     """
     board = game_state['board']
-    # Schnapp dir die aktuelle Food-Map
     food_set = {(f['x'], f['y']) for f in board['food']}
     changes = []
 
-    for snake in board['snakes']:
-        sid = snake['id']
-        mv = move_dict[sid]
+    # Nur die Snakes bewegen, für die ein Zug im move_dict steht
+    for sid, mv in move_dict.items():
+        # Snake-Objekt finden
+        snake = next(s for s in board['snakes'] if s['id'] == sid)
         dx, dy = delta[mv]
         head = snake['body'][0]
         new_head = {"x": head["x"] + dx, "y": head["y"] + dy}
@@ -103,18 +103,19 @@ def apply_moves(game_state: typing.Dict, move_dict: typing.Dict[str,str]) -> typ
 
         # Food-Check
         if (new_head["x"], new_head["y"]) in food_set:
-            # hat gefressen: entferne das Food-Objekt
-            for i,f in enumerate(board['food']):
+            # gefressen: Food-Objekt entfernen und als Änderung speichern
+            for i, f in enumerate(board['food']):
                 if (f['x'], f['y']) == (new_head["x"], new_head["y"]):
                     removed = board['food'].pop(i)
                     changes.append((sid, True, removed))
                     break
         else:
-            # kein Food: Schwanzsegment entfernen
+            # kein Food: Schwanzsegment entfernen und Änderung speichern
             tail = snake['body'].pop()
             changes.append((sid, False, tail))
 
     return changes
+
 
 def undo_moves(game_state: typing.Dict, changes: typing.List[tuple]):
     """
