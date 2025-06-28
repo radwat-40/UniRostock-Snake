@@ -87,6 +87,39 @@ def apply_moves(game_state: typing.Dict, move_dict: typing.Dict[str,str]) -> typ
             changes.append((sid, False, tail))
 
     return changes
+def simulate_enemy_move_mixed(game_state, enemy_snake):
+    head = enemy_snake['body'][0]
+    board = game_state['board']
+    width, height = board['width'], board['height']
+    occupied = {(seg['x'], seg['y']) for s in board['snakes'] for seg in s['body']}
+
+    valid_moves = []
+    for dir_key, (dx, dy) in delta.items():
+        nx, ny = head['x'] + dx, head['y'] + dy
+        if 0 <= nx < width and 0 <= ny < height and (nx, ny) not in occupied:
+            valid_moves.append(dir_key)
+
+    if not valid_moves:
+        return "up"  # fallback
+
+    # 50/50 greedy vs survival
+    if random.random() < 0.5 and board['food']:
+        closest = min(board['food'], key=lambda f: abs(f['x'] - head['x']) + abs(f['y'] - head['y']))
+        fx, fy = closest['x'], closest['y']
+        def dist(move):
+            dx, dy = delta[move]
+            return abs((head['x'] + dx) - fx) + abs((head['y'] + dy) - fy)
+        valid_moves.sort(key=dist)
+        return valid_moves[0]
+    else:
+        # survival: freiester Move
+        def floodfill(move):
+            dx, dy = delta[move]
+            new_head = {"x": head['x'] + dx, "y": head['y'] + dy}
+            return calculate_free_space(new_head, game_state)[0]
+        valid_moves.sort(key=floodfill, reverse=True)
+        return valid_moves[0]
+
 
 def undo_moves(game_state: typing.Dict, changes: typing.List[tuple]):
     """Undo plus Zobrist-XOR zurückdrehen."""
@@ -116,36 +149,23 @@ def evaluate_move_3ply(start_move: str,
                        alpha: float,
                        beta: float,
                        depth: int) -> float:
+    global current_hash
     alpha_orig, beta_orig = alpha, beta
     key = (current_hash, depth)
     cached = lookup_in_tt(key, depth, alpha, beta)
     if cached is not None:
         return cached
 
-    # Anfangswerte
     best_score = -float("inf")
     move_dict = {}
+    my_id = game_state["you"]["id"]
+
     for snake in game_state["board"]["snakes"]:
         sid = snake["id"]
-        if sid == game_state["you"]["id"]:
+        if sid == my_id:
             move_dict[sid] = start_move
         else:
-                    # smarterer Gegnerzug: nur gültige Moves
-            enemy_snake = snake
-            ex, ey = enemy_snake['body'][0]['x'], enemy_snake['body'][0]['y']
-            enemy_options = []
-
-            for dir_key, (dx, dy) in delta.items():
-                nx, ny = ex + dx, ey + dy
-                if 0 <= nx < game_state['board']['width'] and 0 <= ny < game_state['board']['height']:
-                    if (nx, ny) not in {(seg['x'], seg['y']) for s in game_state['board']['snakes'] for seg in s['body']}:
-                        enemy_options.append(dir_key)
-
-            if enemy_options:
-                move_dict[sid] = random.choice(enemy_options)
-            else:
-                move_dict[sid] = "up"  # Fallback
-
+            move_dict[sid] = simulate_enemy_move_mixed(game_state, snake)
 
     changes = apply_moves(game_state, move_dict)
 
@@ -162,7 +182,6 @@ def evaluate_move_3ply(start_move: str,
 
     undo_moves(game_state, changes)
 
-    # Speichern
     if best_score <= alpha_orig:
         etype = 'UPPERBOUND'
     elif best_score >= beta_orig:
@@ -170,8 +189,8 @@ def evaluate_move_3ply(start_move: str,
     else:
         etype = 'EXACT'
     store_in_tt(key, depth, best_score, etype)
-
     return best_score
+
 
            
 def lookup_in_tt(hash_key, depth, alpha, beta):
