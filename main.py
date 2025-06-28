@@ -1,3 +1,8 @@
+das gleiche bitte nochmal für folgenden code:
+
+
+
+
 import random
 import typing
 import copy
@@ -204,20 +209,15 @@ def avoid_collisions(my_head, my_body, snakes, is_move_safe, board_width, board_
             if segment["x"] == my_head["x"] and segment["y"] == my_head["y"] + 1: is_move_safe["up"] = False
             if segment["x"] == my_head["x"] and segment["y"] == my_head["y"] - 1: is_move_safe["down"] = False
 
-def evaluate_move_3ply(start_move: str,
+def evaluate_move_2ply(start_move: str,
                        game_state: typing.Dict,
                        is_move_safe: typing.Dict[str, bool],
                        evaluation_function: typing.Callable,
                        alpha: float,
                        beta: float,
                        depth: int) -> float:
-    """
-    Führt 3-Ply-Lookahead mit Alpha-Beta-Pruning und Transposition Table durch.
-    """
-    # Originalwerte merken für Bound-Erkennung
     alpha_orig, beta_orig = alpha, beta
 
-    # 1. Transposition-Cache prüfen
     key = board_to_key(game_state) + f"#d{depth}"
     entry = lookup_in_tt(key, depth, alpha, beta)
     if entry is not None:
@@ -226,76 +226,42 @@ def evaluate_move_3ply(start_move: str,
     my_id = game_state['you']['id']
     my_head = game_state['you']['body'][0]
 
-    # 2. Eigene Zug-Sicherheit prüfen
     if not is_move_safe[start_move]:
         return -9999
 
-    # 3. Ersten Zug simulieren
     state_after_first = simulate_board_state(game_state, {my_id: start_move})
-
-    # Gegner ermitteln
     enemies = [s for s in state_after_first['board']['snakes'] if s['id'] != my_id]
     if not enemies:
-        # kein Gegner mehr → reine Heuristik
-        return evaluation_function(start_move, my_head, game_state, is_move_safe)
+        return evaluation_function(start_move, my_head, state_after_first, is_move_safe)
+
     enemy_id = enemies[0]['id']
 
-    best_score = -float('inf')
+    worst_case_score = float("inf")
 
-    # 4. Gegnerantworten (Minimizer)
     for enemy_move in delta:
-        # Beta-Pruning
-        if best_score >= beta:
+        state_after_enemy = simulate_board_state(state_after_first, {enemy_id: enemy_move})
+
+        score = evaluation_function(start_move, my_head, state_after_enemy, is_move_safe)
+
+        if score < worst_case_score:
+            worst_case_score = score
+
+        if worst_case_score <= alpha:
             break
+        beta = min(beta, worst_case_score)
 
-        sim_state = simulate_board_state(game_state, {my_id: start_move, enemy_id: enemy_move})
-
-        # 5. Eigene Folgezüge (Maximizer)
-        my_snake = next(s for s in sim_state['board']['snakes'] if s['id'] == my_id)
-        follow_head = my_snake['body'][0]
-
-        safe_follow = {m: True for m in delta}
-        avoid_collisions(follow_head,
-                         my_snake['body'],
-                         sim_state['board']['snakes'],
-                         safe_follow,
-                         sim_state['board']['width'],
-                         sim_state['board']['height'],
-                         my_id)
-        follow_moves = [m for m, ok in safe_follow.items() if ok]
-
-        if not follow_moves:
-            response_score = -9999
-        else:
-            response_score = -float('inf')
-            for follow in follow_moves:
-                # Inneres Pruning
-                if response_score >= beta:
-                    break
-                val = evaluation_function(follow, follow_head, sim_state, safe_follow)
-                if val > response_score:
-                    response_score = val
-
-        # Gegner wählt Zug, der unseren Score minimiert
-        if best_score == -float('inf') or response_score < best_score:
-            best_score = response_score
-
-        # Alpha-Beta-Update
-        if best_score <= alpha:
-            # Alpha-Cutoff
-            break
-        alpha = max(alpha, best_score)
-
-    # 6. Bound-Typ ermitteln und cachen
-    if best_score <= alpha_orig:
+    # Transposition table speichern
+    if worst_case_score <= alpha_orig:
         etype = 'UPPERBOUND'
-    elif best_score >= beta_orig:
+    elif worst_case_score >= beta_orig:
         etype = 'LOWERBOUND'
     else:
         etype = 'EXACT'
-    store_in_tt(key, depth, best_score, etype)
+    store_in_tt(key, depth, worst_case_score, etype)
 
-    return best_score
+    return worst_case_score
+
+
 
 # === EVALUATION ===
 def evaluate_aggressive(move, my_head, game_state, is_move_safe):
@@ -382,34 +348,26 @@ def evaluate_kill_mode(move, my_head, game_state, is_move_safe):
     return score
 # === MOVE ===
 def move(game_state: typing.Dict) -> typing.Dict:
-    board = game_state['board']
-    snakes = board['snakes']
-    you = game_state['you']
-    my_id = you['id']
-    my_health = you['health']
-    my_body = you['body']
-    my_head = my_body[0]
-    my_length = len(my_body)
-    board_width = board['width']
-    board_height = board['height']
+    board_width = game_state['board']['width']
+    board_height = game_state['board']['height']
+    my_head = game_state['you']['body'][0]
+    my_body = game_state['you']['body']
+    my_length = game_state['you']['length']
+    my_health = game_state['you']['health']
+    my_id = game_state['you']['id']
+    snakes = game_state['board']['snakes']
+    enemy = [s for s in snakes if s['id'] != my_id][0]
+    enemy_length = enemy['length']
 
-    delta = {
-        'up': (0, 1),
-        'down': (0, -1),
-        'left': (-1, 0),
-        'right': (1, 0),
-    }
+    # Occupied-Set einmalig
+    occupied = {(seg['x'], seg['y']) for s in snakes for seg in s['body']}
 
-    # Enemy length
-    enemy_length = max([len(s['body']) for s in snakes if s['id'] != my_id] or [0])
-
-    # --- Început logică alegere mutare ---
     # Kollisionscheck
     is_move_safe = {m: True for m in delta}
     avoid_collisions(my_head, my_body, snakes, is_move_safe, board_width, board_height, my_id)
     safe_moves = [m for m, ok in is_move_safe.items() if ok]
     if not safe_moves:
-        return {"move": "down"}  # fallback în caz că nu există nicio mutare sigură
+        return {"move": "down"}
 
     mode = determine_mode(my_length, enemy_length, my_health)
 
@@ -422,21 +380,21 @@ def move(game_state: typing.Dict) -> typing.Dict:
         best_val = -float('inf')
         alpha, beta = -float('inf'), float('inf')
         for m in safe_moves:
-            val = evaluate_move_3ply(
-                m,
-                game_state,
-                is_move_safe,
-                eval_fn,
-                alpha,
-                beta,
-                depth=3
-            )
+            # Depth=3, weil wir 3 Ply Lookahead machen
+            val = evaluate_move_2ply(m,
+                         game_state,
+                         is_move_safe,
+                         eval_fn,
+                         alpha,
+                         beta,
+                         depth=2)
+
             if val > best_val:
                 best_val, best_move = val, m
                 alpha = max(alpha, val)
         chosen = best_move
     else:
-        # Normal mode: alege mutarea care oferă cel mai mult spațiu liber
+        # Normal mode: freier Raum
         chosen = max(
             safe_moves,
             key=lambda m: calculate_free_space(
@@ -444,6 +402,10 @@ def move(game_state: typing.Dict) -> typing.Dict:
                 game_state
             )[0]
         )
+
+    if not chosen:
+        print("WARNING: Kein Move wurde gewählt – fallback auf ersten sicheren Zug.")
+        chosen = safe_moves[0]
 
     print(f"Turn {game_state['turn']} Mode: {mode} Move: {chosen}")
     return {"move": chosen}
