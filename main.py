@@ -2,7 +2,6 @@ import typing
 import random
 from collections import deque
 
-# === MOVE DELTA ===
 delta = {
     "up":    (0, 1),
     "down":  (0, -1),
@@ -10,7 +9,44 @@ delta = {
     "right": (1, 0)
 }
 
-# === MAIN LOGIC ===
+# berechnet naechsten zug
+#Funktionen:
+def detect_dead_end(start, board, snakes, depth_limit=10):
+    """
+    Führt eine Flood-Fill-Analyse durch, um zu erkennen, ob ein Pfad in eine Sackgasse führt.
+    Gibt True zurück, wenn es wahrscheinlich eine Sackgasse ist, False sonst.
+    """
+    from collections import deque
+
+    visited = set()
+    queue = deque()
+    queue.append((start['x'], start['y'], 0))
+    visited.add((start['x'], start['y']))
+    
+    board_width, board_height = board['width'], board['height']
+    occupied = {(seg['x'], seg['y']) for s in snakes for seg in s['body']}
+    
+    reachable_tiles = 0
+    for_count = 0  # Sicherheitsmechanismus, um Abbrüche zu verhindern
+    
+    while queue and for_count < 100:
+        x, y, depth = queue.popleft()
+        for_count += 1
+        if depth >= depth_limit:
+            continue
+        reachable_tiles += 1
+        for dx, dy in [(-1,0), (1,0), (0,-1), (0,1)]:
+            nx, ny = x + dx, y + dy
+            if (0 <= nx < board_width and 0 <= ny < board_height and 
+                (nx, ny) not in visited and (nx, ny) not in occupied):
+                visited.add((nx, ny))
+                queue.append((nx, ny, depth + 1))
+    
+    # Sackgasse, wenn zu wenig freie Felder erreichbar sind
+    return reachable_tiles < depth_limit // 2
+
+
+
 def move(game_state: typing.Dict) -> typing.Dict:
     board = game_state['board']
     you = game_state['you']
@@ -22,28 +58,50 @@ def move(game_state: typing.Dict) -> typing.Dict:
     board_height = board['height']
     enemy = [s for s in board['snakes'] if s['id'] != you['id']][0]
 
-    # === Determine Mode ===
+    # Moduslogik nach Länge und Leben
     mode = "neutral"
     if my_health < 40 or my_length <= enemy['length']:
         mode = "food_hunter"
     elif my_length >= enemy['length'] + 2:
         mode = "aggressive"
 
-    # === Determine Safe Moves ===
     safe_moves = []
     for m, (dx, dy) in delta.items():
         new_x = my_head['x'] + dx
         new_y = my_head['y'] + dy
+
+        # Spielfeldgrenzen prüfen
         if not (0 <= new_x < board_width and 0 <= new_y < board_height):
             continue
+
+        # Belegte Felder vermeiden
         if is_occupied(new_x, new_y, board['snakes']):
             continue
+
+        # Head-on-Risiko prüfen
+        is_risky_head_on = False
+        for other in board['snakes']:
+            if other['id'] == you['id']:
+                continue
+            enemy_head = other['body'][0]
+            if abs(enemy_head['x'] - new_x) + abs(enemy_head['y'] - new_y) == 1:
+                if my_length <= len(other['body']):
+                    is_risky_head_on = True
+                    break
+
+        if is_risky_head_on:
+            continue
+
+        # Dead-End-Vermeidung
+        new_head = {'x': new_x, 'y': new_y}
+        if detect_dead_end(new_head, board, board['snakes']):
+            continue
+
         safe_moves.append(m)
 
     if not safe_moves:
-        return {"move": "up"}  # fallback
+        return {"move": "up"}  # Notfallzug
 
-    # === Score each move ===
     best_score = -9999
     best_move = safe_moves[0]
 
@@ -55,12 +113,15 @@ def move(game_state: typing.Dict) -> typing.Dict:
 
         if mode == "food_hunter":
             dist = closest_food_distance(new_head, board['food'])
-            score += (50 - dist) * 2 if dist is not None else 0
+            if dist is not None:
+                score += (50 - dist) * 2
             score += flood_score + quality
+
         elif mode == "aggressive":
             enemy_score, _ = flood_fill(enemy['body'][0], board, limit=50)
             score += flood_score * 2 - enemy_score * 3 + quality
-        else:  # neutral
+
+        else:
             score += flood_score + quality
 
         if score > best_score:
@@ -70,7 +131,7 @@ def move(game_state: typing.Dict) -> typing.Dict:
     return {"move": best_move}
 
 
-# === HELPERS ===
+# prueft feld belegung
 def is_occupied(x, y, snakes):
     for s in snakes:
         for b in s['body']:
@@ -78,6 +139,7 @@ def is_occupied(x, y, snakes):
                 return True
     return False
 
+# berechnet freien raum
 def flood_fill(start: dict, board: dict, limit: int = 50):
     visited = set()
     q = deque()
@@ -96,37 +158,41 @@ def flood_fill(start: dict, board: dict, limit: int = 50):
 
         for dx, dy in delta.values():
             nx, ny = x + dx, y + dy
-            if 0 <= nx < board_w and 0 <= ny < board_h and (nx, ny) not in visited and not is_occupied(nx, ny, snakes):
-                visited.add((nx, ny))
-                q.append((nx, ny))
-                free_neighbors += 1
+            if 0 <= nx < board_w and 0 <= ny < board_h:
+                if (nx, ny) not in visited and not is_occupied(nx, ny, snakes):
+                    visited.add((nx, ny))
+                    q.append((nx, ny))
+                    free_neighbors += 1
 
         quality += free_neighbors
 
     return count, quality
 
+# misst futter abstand
 def closest_food_distance(pos, food_list):
     if not food_list:
         return None
     return min(abs(pos['x'] - f['x']) + abs(pos['y'] - f['y']) for f in food_list)
 
-
-# === SERVER ENTRY ===
+# gibt snake infos
 def info() -> typing.Dict:
     return {
         "apiversion": "1",
         "author": "flood-fighter",
-        "color": "#11cc99",
-        "head": "beluga",
+        "color": "#69420",
+        "head": "trans-rights-scarf",
         "tail": "bolt"
     }
 
+# spielstartmeldung
 def start(game_state: typing.Dict):
     print("Game started")
 
+# spielendmeldung
 def end(game_state: typing.Dict):
     print("Game over")
 
+# serverstart logik
 if __name__ == "__main__":
     from server import run_server
     run_server({"info": info, "start": start, "move": move, "end": end})
