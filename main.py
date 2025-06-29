@@ -96,7 +96,8 @@ def move(game_state: typing.Dict) -> typing.Dict:
 
         # Dead-End-Vermeidung
         new_head = {'x': new_x, 'y': new_y}
-        if detect_dead_end(new_head, board, board['snakes']):
+        tail = you['body'][-1]
+        if detect_dead_end(new_head, board, board['snakes']) and not is_tail_reachable(new_head, tail, board, board['snakes']):
             continue
 
         safe_moves.append(m)
@@ -177,6 +178,33 @@ def closest_food_distance(pos, food_list):
     if not food_list:
         return None
     return min(abs(pos['x'] - f['x']) + abs(pos['y'] - f['y']) for f in food_list)
+
+def is_tail_reachable(start, tail, board, snakes):
+    from collections import deque
+
+    visited = set()
+    queue = deque()
+    queue.append((start['x'], start['y']))
+    visited.add((start['x'], start['y']))
+
+    board_w, board_h = board['width'], board['height']
+    occupied = {(seg['x'], seg['y']) for s in snakes for seg in s['body']}
+    occupied.remove((tail['x'], tail['y']))  # Tail ignorieren, da es sich wegbewegt
+
+    while queue:
+        x, y = queue.popleft()
+        if (x, y) == (tail['x'], tail['y']):
+            return True  # Tail erreichbar
+
+        for dx, dy in delta.values():
+            nx, ny = x + dx, y + dy
+            if (0 <= nx < board_w and 0 <= ny < board_h and
+                (nx, ny) not in visited and (nx, ny) not in occupied):
+                visited.add((nx, ny))
+                queue.append((nx, ny))
+
+    return False  # kein Weg zum Tail
+
 
 # gibt snake infos
 def info() -> typing.Dict:
