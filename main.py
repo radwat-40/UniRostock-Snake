@@ -75,7 +75,9 @@ def move(game_state: typing.Dict) -> typing.Dict:
             continue
 
         # Belegte Felder vermeiden
-        if is_occupied(new_x, new_y, board['snakes']):
+        ate_food = any(f['x'] == new_x and f['y'] == new_y for f in board['food'])
+        ignore_tail = you if not ate_food else None
+        if is_occupied(new_x, new_y, board['snakes'], ignore_tail=ignore_tail):
             continue
 
         # Head-on-Risiko prüfen
@@ -132,9 +134,11 @@ def move(game_state: typing.Dict) -> typing.Dict:
 
 
 # prueft feld belegung
-def is_occupied(x, y, snakes):
+def is_occupied(x, y, snakes, ignore_tail=None):
     for s in snakes:
-        for b in s['body']:
+        for i, b in enumerate(s['body']):
+            if s == ignore_tail and i == len(s['body']) - 1:
+                continue  # Tail ignorieren, wenn erlaubt
             if b['x'] == x and b['y'] == y:
                 return True
     return False
