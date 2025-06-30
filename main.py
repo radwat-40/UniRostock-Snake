@@ -1,18 +1,15 @@
 import typing
-import random
 from collections import deque
 
+# === NEU: Bewegungsdeltas ===
 delta = {
     "up":    (0, 1),
     "down":  (0, -1),
     "left":  (-1, 0),
     "right": (1, 0)
 }
-
-# berechnet naechsten zug
-#Funktionen:
+#funktionenH
 def compute_voronoi(board, you_head, enemy_head):
-    from collections import deque
 
     width, height = board['width'], board['height']
     snakes = board['snakes']
@@ -55,24 +52,119 @@ def compute_voronoi(board, you_head, enemy_head):
 
     return you_score, enemy_score, neutral_score
 
-def detect_dead_end(start, board, snakes, depth_limit=10):
-    """
-    Führt eine Flood-Fill-Analyse durch, um zu erkennen, ob ein Pfad in eine Sackgasse führt.
-    Gibt True zurück, wenn es wahrscheinlich eine Sackgasse ist, False sonst.
-    """
-    from collections import deque
+# === NEU: Agent-Klasse ===
+class VoronoiAgent:
+    def __init__(self, game_state):
+        self.board = game_state['board']
+        self.you = game_state['you']
+        self.enemy = [s for s in self.board['snakes'] if s['id'] != self.you['id']][0]
+        self.my_head = self.you['body'][0]
+        self.my_tail = self.you['body'][-1]
+        self.my_health = self.you['health']
+        self.my_length = self.you['length']
+        self.board_width = self.board['width']
+        self.board_height = self.board['height']
 
+    def choose_move(self):
+        mode = "neutral"
+        if self.my_health < 40 or self.my_length <= len(self.enemy['body']):
+            mode = "food_hunter"
+        elif self.my_length >= len(self.enemy['body']) + 2 and self.my_health >= 50:
+            you_area, enemy_area, _ = compute_voronoi(self.board, self.my_head, self.enemy['body'][0])
+            if you_area >= enemy_area:
+                mode = "aggressive"
+
+
+        safe_moves = []
+        for m, (dx, dy) in delta.items():
+            new_x = self.my_head['x'] + dx
+            new_y = self.my_head['y'] + dy
+
+            if not (0 <= new_x < self.board_width and 0 <= new_y < self.board_height):
+                continue
+
+            ate_food = any(f['x'] == new_x and f['y'] == new_y for f in self.board['food'])
+            ignore_tail = self.you if not ate_food else None
+            if is_occupied(new_x, new_y, self.board['snakes'], ignore_tail=ignore_tail):
+                continue
+
+            is_risky_head_on = False
+            for other in self.board['snakes']:
+                if other['id'] == self.you['id']:
+                    continue
+                enemy_head = other['body'][0]
+                if abs(enemy_head['x'] - new_x) + abs(enemy_head['y'] - new_y) == 1:
+                    if self.my_length <= len(other['body']):
+                        is_risky_head_on = True
+                        break
+            if is_risky_head_on:
+                continue
+
+            new_head = {'x': new_x, 'y': new_y}
+            if len(safe_moves) > 0:
+                if detect_dead_end(new_head, self.board, self.board['snakes']) and not is_tail_reachable(new_head, self.my_tail, self.board, self.board['snakes']):
+                    continue
+
+
+            safe_moves.append(m)
+
+        if not safe_moves:
+            return "up"
+        if len(safe_moves) == 1:
+            return safe_moves[0]
+
+
+
+        best_score = -9999
+        best_move = safe_moves[0]
+
+        for move in safe_moves:
+            dx, dy = delta[move]
+            new_head = {'x': self.my_head['x'] + dx, 'y': self.my_head['y'] + dy}
+            flood_score, quality = flood_fill(new_head, self.board, limit=50)
+            score = 0
+
+            if mode == "food_hunter":
+                dist = closest_food_distance(new_head, self.board['food'])
+                if dist is not None:
+                    score += (50 - dist) * 2
+                score += flood_score + quality
+
+            elif mode == "aggressive":
+                enemy_score, _ = flood_fill(self.enemy['body'][0], self.board, limit=50)
+                score += flood_score * 2 - enemy_score * 3 + quality
+                you_area, enemy_area, _ = compute_voronoi(self.board, new_head, self.enemy['body'][0])
+                score += (you_area - enemy_area)
+
+            else:
+                score += flood_score + quality
+                you_area, enemy_area, _ = compute_voronoi(self.board, new_head, self.enemy['body'][0])
+                score += (you_area - enemy_area)
+
+
+            if score > best_score:
+                best_score = score
+                best_move = move
+        return best_move
+
+# === ERSETZT move() durch Agentennutzung ===
+def move(game_state: typing.Dict) -> typing.Dict:
+    agent = VoronoiAgent(game_state)
+    return {"move": agent.choose_move()}
+
+
+# === Bestehende Helferfunktionen bleiben gleich ===
+def detect_dead_end(start, board, snakes, depth_limit=10):
     visited = set()
     queue = deque()
     queue.append((start['x'], start['y'], 0))
     visited.add((start['x'], start['y']))
-    
+
     board_width, board_height = board['width'], board['height']
     occupied = {(seg['x'], seg['y']) for s in snakes for seg in s['body']}
-    
+
     reachable_tiles = 0
-    for_count = 0  # Sicherheitsmechanismus, um Abbrüche zu verhindern
-    
+    for_count = 0
     while queue and for_count < 100:
         x, y, depth = queue.popleft()
         for_count += 1
@@ -85,181 +177,40 @@ def detect_dead_end(start, board, snakes, depth_limit=10):
                 (nx, ny) not in visited and (nx, ny) not in occupied):
                 visited.add((nx, ny))
                 queue.append((nx, ny, depth + 1))
-    
-    # Sackgasse, wenn zu wenig freie Felder erreichbar sind
+
     return reachable_tiles < depth_limit // 2
 
-def determine_mode(you, enemy):
-    if you['health'] < 35 or you['length'] < len(enemy['body']):
-        return "food_hunter"
-    elif you['length'] >= len(enemy['body']) + 2:
-        return "aggressive"
-    return "neutral"
+def is_tail_reachable(start, tail, board, snakes):
+    visited = set()
+    queue = deque()
+    queue.append((start['x'], start['y']))
+    visited.add((start['x'], start['y']))
 
-def score_move(move, my_head, board, you, enemy, mode):
-    dx, dy = delta[move]
-    new_head = {'x': my_head['x'] + dx, 'y': my_head['y'] + dy}
-    flood_score, quality = flood_fill(new_head, board, limit=50)
-    vor_you, vor_enemy, _ = compute_voronoi(board, new_head, enemy['body'][0])
-    score = 0
+    board_w, board_h = board['width'], board['height']
+    occupied = {(seg['x'], seg['y']) for s in snakes for seg in s['body']}
+    occupied.remove((tail['x'], tail['y']))
 
-    if mode == "food_hunter":
-        dist = closest_food_distance(new_head, board['food'])
-        if dist is not None:
-            score += (50 - dist) * 2
-        score += flood_score + quality
+    while queue:
+        x, y = queue.popleft()
+        if (x, y) == (tail['x'], tail['y']):
+            return True
+        for dx, dy in delta.values():
+            nx, ny = x + dx, y + dy
+            if (0 <= nx < board_w and 0 <= ny < board_h and
+                (nx, ny) not in visited and (nx, ny) not in occupied):
+                visited.add((nx, ny))
+                queue.append((nx, ny))
+    return False
 
-    elif mode == "aggressive":
-        enemy_score, _ = flood_fill(enemy['body'][0], board, limit=50)
-        score += flood_score * 2 - enemy_score * 3 + quality
-        score += (vor_you - vor_enemy) * 2
-
-    else:
-        score += flood_score + quality
-        score += (vor_you - vor_enemy)
-
-    return score
-
-def simulate_move(snake, move, board):
-    from copy import deepcopy
-
-    new_board = deepcopy(board)
-    new_snakes = deepcopy(board['snakes'])
-
-    new_snake = None
-    for i, s in enumerate(new_snakes):
-        if s['id'] == snake['id']:
-            new_snake = s
-            dx, dy = delta[move]
-            new_head = {'x': s['body'][0]['x'] + dx, 'y': s['body'][0]['y'] + dy}
-            s['body'] = [new_head] + s['body'][:-1]
-            new_snakes[i] = s
-            break
-
-    new_board['snakes'] = new_snakes
-    return new_board
-
-def is_dangerous_situation(you, enemy, safe_moves):
-    if len(safe_moves) <= 2:
-        return True
-    head = you['body'][0]
-    enemy_head = enemy['body'][0]
-    return abs(head['x'] - enemy_head['x']) + abs(head['y'] - enemy_head['y']) <= 2
-
-def lookahead_best_move(you, enemy, board, safe_moves, mode):
-    best_score = -9999
-    best_move = safe_moves[0]
-
-    for move in safe_moves:
-        dx, dy = delta[move]
-        new_x = you['body'][0]['x'] + dx
-        new_y = you['body'][0]['y'] + dy
-
-        board_w, board_h = board['width'], board['height']
-        if not (0 <= new_x < board_w and 0 <= new_y < board_h):
-            continue
-
-        if is_occupied(new_x, new_y, board['snakes']):
-            continue
-
-        new_board = simulate_move(you, move, board)
-
-        you_future = deepcopy(you)
-        new_head = {'x': new_x, 'y': new_y}
-        you_future['body'] = [new_head] + you['body'][:-1]
-
-        new_score = score_move(move, new_head, new_board, you_future, enemy, mode)
-
-        if new_score > best_score:
-            best_score = new_score
-            best_move = move
-
-    return best_move
-
-
-def move(game_state: typing.Dict) -> typing.Dict:
-    board = game_state['board']
-    you = game_state['you']
-
-    my_head = you['body'][0]
-    my_health = you['health']
-    my_length = you['length']
-    board_width = board['width']
-    board_height = board['height']
-    enemy = [s for s in board['snakes'] if s['id'] != you['id']][0]
-
-    # Moduslogik nach Länge und Leben
-    mode = determine_mode(you, enemy)
-
-    safe_moves = []
-    for m, (dx, dy) in delta.items():
-        new_x = my_head['x'] + dx
-        new_y = my_head['y'] + dy
-
-        # Spielfeldgrenzen prüfen
-        if not (0 <= new_x < board_width and 0 <= new_y < board_height):
-            continue
-
-        # Belegte Felder vermeiden
-        ate_food = any(f['x'] == new_x and f['y'] == new_y for f in board['food'])
-        ignore_tail = you if not ate_food else None
-        if is_occupied(new_x, new_y, board['snakes'], ignore_tail=ignore_tail):
-            continue
-
-        # Head-on-Risiko prüfen
-        is_risky_head_on = False
-        for other in board['snakes']:
-            if other['id'] == you['id']:
-                continue
-            enemy_head = other['body'][0]
-            if abs(enemy_head['x'] - new_x) + abs(enemy_head['y'] - new_y) == 1:
-                if my_length <= len(other['body']):
-                    is_risky_head_on = True
-                    break
-
-        if is_risky_head_on:
-            continue
-
-        # Dead-End-Vermeidung
-        new_head = {'x': new_x, 'y': new_y}
-        tail = you['body'][-1]
-        if len(safe_moves) > 1:
-            if detect_dead_end(new_head, board, board['snakes']) and not is_tail_reachable(new_head, tail, board, board['snakes']):
-                continue
-
-
-        safe_moves.append(m)
-
-    if not safe_moves:
-        return {"move": "up"}  # Notfallzug
-
-    best_score = -9999
-    best_move = safe_moves[0]
-
-    for move in safe_moves:
-        score = score_move(move, my_head, board, you, enemy, mode)
-        if score > best_score:
-            best_score = score
-            best_move = move
-
-
-    if is_dangerous_situation(you, enemy, safe_moves):
-        best_move = lookahead_best_move(you, enemy, board, safe_moves, mode)
-
-    return {"move": best_move}
-
-
-# prueft feld belegung
 def is_occupied(x, y, snakes, ignore_tail=None):
     for s in snakes:
         for i, b in enumerate(s['body']):
             if s == ignore_tail and i == len(s['body']) - 1:
-                continue  # Tail ignorieren, wenn erlaubt
+                continue
             if b['x'] == x and b['y'] == y:
                 return True
     return False
 
-# berechnet freien raum
 def flood_fill(start: dict, board: dict, limit: int = 50):
     visited = set()
     q = deque()
@@ -288,58 +239,28 @@ def flood_fill(start: dict, board: dict, limit: int = 50):
 
     return count, quality
 
-# misst futter abstand
 def closest_food_distance(pos, food_list):
     if not food_list:
         return None
     return min(abs(pos['x'] - f['x']) + abs(pos['y'] - f['y']) for f in food_list)
 
-def is_tail_reachable(start, tail, board, snakes):
-    from collections import deque
-
-    visited = set()
-    queue = deque()
-    queue.append((start['x'], start['y']))
-    visited.add((start['x'], start['y']))
-
-    board_w, board_h = board['width'], board['height']
-    occupied = {(seg['x'], seg['y']) for s in snakes for seg in s['body']}
-    occupied.remove((tail['x'], tail['y']))  # Tail ignorieren, da es sich wegbewegt
-
-    while queue:
-        x, y = queue.popleft()
-        if (x, y) == (tail['x'], tail['y']):
-            return True  # Tail erreichbar
-
-        for dx, dy in delta.values():
-            nx, ny = x + dx, y + dy
-            if (0 <= nx < board_w and 0 <= ny < board_h and
-                (nx, ny) not in visited and (nx, ny) not in occupied):
-                visited.add((nx, ny))
-                queue.append((nx, ny))
-
-    return False  # kein Weg zum Tail
 
 
-# gibt snake infos
 def info() -> typing.Dict:
     return {
         "apiversion": "1",
         "author": "flood-fighter",
-        "color": "#A0A0A045",
-        "head": "snowman",
+        "color": "#69420",
+        "head": "trans-rights-scarf",
         "tail": "bolt"
     }
 
-# spielstartmeldung
 def start(game_state: typing.Dict):
     print("Game started")
 
-# spielendmeldung
 def end(game_state: typing.Dict):
     print("Game over")
 
-# serverstart logik
 if __name__ == "__main__":
     from server import run_server
     run_server({"info": info, "start": start, "move": move, "end": end})
