@@ -251,7 +251,7 @@ def info() -> typing.Dict:
         "apiversion": "1",
         "author": "flood-fighter",
         "color": "#69420",
-        "head": "trans-rights-scarf",
+        "head": "tiger-king",
         "tail": "bolt"
     }
 
