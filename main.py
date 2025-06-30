@@ -149,14 +149,31 @@ def is_dangerous_situation(you, enemy, safe_moves):
 def lookahead_best_move(you, enemy, board, safe_moves, mode):
     best_score = -9999
     best_move = safe_moves[0]
+
     for move in safe_moves:
+        dx, dy = delta[move]
+        new_x = you['body'][0]['x'] + dx
+        new_y = you['body'][0]['y'] + dy
+
+        board_w, board_h = board['width'], board['height']
+        if not (0 <= new_x < board_w and 0 <= new_y < board_h):
+            continue
+
+        if is_occupied(new_x, new_y, board['snakes']):
+            continue
+
         new_board = simulate_move(you, move, board)
+
         you_future = deepcopy(you)
-        you_future['body'] = [dict(x=you['body'][0]['x'] + delta[move][0], y=you['body'][0]['y'] + delta[move][1])] + you['body'][:-1]
-        new_score = score_move(move, you_future['body'][0], new_board, you_future, enemy, mode)
+        new_head = {'x': new_x, 'y': new_y}
+        you_future['body'] = [new_head] + you['body'][:-1]
+
+        new_score = score_move(move, new_head, new_board, you_future, enemy, mode)
+
         if new_score > best_score:
             best_score = new_score
             best_move = move
+
     return best_move
 
 
@@ -206,8 +223,10 @@ def move(game_state: typing.Dict) -> typing.Dict:
         # Dead-End-Vermeidung
         new_head = {'x': new_x, 'y': new_y}
         tail = you['body'][-1]
-        if detect_dead_end(new_head, board, board['snakes']) and not is_tail_reachable(new_head, tail, board, board['snakes']):
-            continue
+        if len(safe_moves) > 1:
+            if detect_dead_end(new_head, board, board['snakes']) and not is_tail_reachable(new_head, tail, board, board['snakes']):
+                continue
+
 
         safe_moves.append(m)
 
@@ -307,8 +326,8 @@ def info() -> typing.Dict:
     return {
         "apiversion": "1",
         "author": "flood-fighter",
-        "color": "#CB00F445",
-        "head": "trans-rights-scarf",
+        "color": "#A0A0A045",
+        "head": "snowman",
         "tail": "bolt"
     }
 
