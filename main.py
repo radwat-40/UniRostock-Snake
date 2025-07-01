@@ -279,8 +279,8 @@ def info() -> typing.Dict:
         "apiversion": "1",
         "author": "flood-fighter",
         "color": "#FF1493",
-        "head": "tiger-king",
-        "tail": "bolt"
+        "head": "mlh-gene",
+        "tail": "replit-notmark"
     }
 
 def start(game_state: typing.Dict):
