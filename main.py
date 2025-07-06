@@ -83,45 +83,58 @@ class VoronoiAgent:
 
 
 
+        if len(self.you['body']) > 1:
+            neck = self.you['body'][1]
+            rev_dx = self.my_head['x'] - neck['x']
+            rev_dy = self.my_head['y'] - neck['y']
+        else:
+            rev_dx = rev_dy = None
+
         safe_moves = []
         for m, (dx, dy) in delta.items():
             new_x = self.my_head['x'] + dx
             new_y = self.my_head['y'] + dy
 
+            
+            if dx == rev_dx and dy == rev_dy:
+                continue
+
+            
             if not (0 <= new_x < self.board_width and 0 <= new_y < self.board_height):
                 continue
 
+            
             ate_food = any(f['x'] == new_x and f['y'] == new_y for f in self.board['food'])
             ignore_tail = self.you if not ate_food else None
             if is_occupied(new_x, new_y, self.board['snakes'], ignore_tail=ignore_tail):
                 continue
 
+            
             is_risky = False
             for other in self.board['snakes']:
                 if other['id'] == self.you['id']:
                     continue
-                enemy_head = other['body'][0]
-                if abs(enemy_head['x'] - new_x) + abs(enemy_head['y'] - new_y) == 1:
+                eh = other['body'][0]
+                if abs(eh['x'] - new_x) + abs(eh['y'] - new_y) == 1:
                     if self.my_length <= len(other['body']):
                         is_risky = True
-                        break
+                    break
             if is_risky:
                 continue
 
             
-            is_head_to_head = False
-            enemy_length = 0
+            is_h2h = False
+            enemy_len = 0
             for other in self.board['snakes']:
                 if other['id'] == self.you['id']:
                     continue
-                enemy_head = other['body'][0]
-                if abs(enemy_head['x'] - new_x) + abs(enemy_head['y'] - new_y) == 1:
-                    is_head_to_head = True
-                    enemy_length = len(other['body'])
+                eh = other['body'][0]
+                if abs(eh['x'] - new_x) + abs(eh['y'] - new_y) == 1:
+                    is_h2h = True
+                    enemy_len = len(other['body'])
                     break
 
-            if not is_head_to_head or self.my_length <= enemy_length:
-                
+            if not is_h2h or self.my_length <= enemy_len:
                 if detect_dead_end(
                     {'x': new_x, 'y': new_y},
                     self.board,
@@ -136,6 +149,44 @@ class VoronoiAgent:
 
             safe_moves.append(m)
 
+       
+        if not safe_moves:
+            head_to_head = []
+            normal = []
+            for m, (dx, dy) in delta.items():
+                nx = self.my_head['x'] + dx
+                ny = self.my_head['y'] + dy
+
+                
+                if not (0 <= nx < self.board_width and 0 <= ny < self.board_height):
+                    continue
+                
+                if dx == rev_dx and dy == rev_dy:
+                    continue
+
+             
+                h2h = False
+                for other in self.board['snakes']:
+                    if other['id'] == self.you['id']:
+                        continue
+                    eh = other['body'][0]
+                    if abs(eh['x'] - nx) + abs(eh['y'] - ny) == 1:
+                        h2h = True
+                        break
+
+                if h2h:
+                    head_to_head.append(m)
+                else:
+                    normal.append(m)
+
+            if head_to_head:
+                return random.choice(head_to_head)
+            if normal:
+                return random.choice(normal)
+
+            
+            return random.choice(list(delta.keys()))
+        
         if not safe_moves:
             return random.choice(["up", "down", "left", "right"])
         if len(safe_moves) == 1:
@@ -293,7 +344,7 @@ def info() -> typing.Dict:
     return {
         "apiversion": "1",
         "author": "flood-fighter",
-        "color": "#FF1493",
+        "color": "#14F15E",
         "head": "mlh-gene",
         "tail": "replit-notmark"
     }
