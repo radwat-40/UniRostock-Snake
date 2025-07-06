@@ -2,14 +2,14 @@ import typing
 import random
 from collections import deque
 
-# === NEU: Bewegungsdeltas ===
+
 delta = {
     "up":    (0, 1),
     "down":  (0, -1),
     "left":  (-1, 0),
     "right": (1, 0)
 }
-#funktionenH
+
 def compute_voronoi(board, you_head, enemy_head):
 
     width, height = board['width'], board['height']
@@ -53,7 +53,7 @@ def compute_voronoi(board, you_head, enemy_head):
 
     return you_score, enemy_score, neutral_score
 
-# === NEU: Agent-Klasse ===
+
 class VoronoiAgent:
     def __init__(self, game_state):
         self.board = game_state['board']
@@ -68,7 +68,6 @@ class VoronoiAgent:
 
     def choose_move(self):
         
-    # Voronoi nur einmal berechnen
         self.voronoi_you, self.voronoi_enemy, _ = compute_voronoi(
             self.board,
             self.my_head,
@@ -109,12 +108,31 @@ class VoronoiAgent:
             if is_risky:
                 continue
 
-
-            new_head = {'x': new_x, 'y': new_y}
             
-            if detect_dead_end(new_head, self.board, self.board['snakes']) and not is_tail_reachable(new_head, self.my_tail, self.board, self.board['snakes']):
-                continue
+            is_head_to_head = False
+            enemy_length = 0
+            for other in self.board['snakes']:
+                if other['id'] == self.you['id']:
+                    continue
+                enemy_head = other['body'][0]
+                if abs(enemy_head['x'] - new_x) + abs(enemy_head['y'] - new_y) == 1:
+                    is_head_to_head = True
+                    enemy_length = len(other['body'])
+                    break
 
+            if not is_head_to_head or self.my_length <= enemy_length:
+                
+                if detect_dead_end(
+                    {'x': new_x, 'y': new_y},
+                    self.board,
+                    self.board['snakes']
+                ) and not is_tail_reachable(
+                    {'x': new_x, 'y': new_y},
+                    self.my_tail,
+                    self.board,
+                    self.board['snakes']
+                ):
+                    continue
 
             safe_moves.append(m)
 
@@ -175,13 +193,10 @@ class VoronoiAgent:
                 best_move = move
         return best_move
 
-# === ERSETZT move() durch Agentennutzung ===
 def move(game_state: typing.Dict) -> typing.Dict:
     agent = VoronoiAgent(game_state)
     return {"move": agent.choose_move()}
 
-
-# === Bestehende Helferfunktionen bleiben gleich ===
 def detect_dead_end(start, board, snakes, depth_limit=10):
     visited = set()
     queue = deque()
