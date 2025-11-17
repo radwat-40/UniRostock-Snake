@@ -1,0 +1,21 @@
+Unser Bot basiert auf einem ziel- und nutzenbasierten, modellbehafteten Agentenmodell. 
+Die zentrale Agentenfunktion choose_moove() entscheidet auf Grundlage des aktuellen Spielzustands (game_state), welcher Zug ausgeführt werden soll.
+Der Bot verwendet ein internes Weltmodell, das aus dem übergeben Spielstatus (boars, you enemy, etc.) erzeugt wird. Auf Basis dieses Modells berechnet der Bot verschiedene situationsabhängige Zielstrategien – z.B. Futter aufsuchen (food_hunter), den Gegner angreifen (agressive) oder neutral überleben (neutral).
+Um das jeweils geeignetste Zielverhalten zu bestimmen, kommen Bewertungsfunktionen zum Einsatz: Der freie Raum wird mit einen Flood-Fill-Algorithmus geschätzt, und mit Hilfe der Funktion compute_voronoi() wird die Kontrolle über den Raum gegenüber dem Gegner analysiert. So wird eine Nutenbewertung für mögliche Züge vorgenommen, wodurch sich der Agent als nutzenbasiert klassifizieren lässt. 
+
+Die Entscheidung basiert nicht nur auf dem aktuellen percept, sondern auch auf einer internen Repräsentation der Umwelt. Daher handelt es sich nicht um einen einfachen Reflexagenten, sondern um einen modellbasieren Agenten mit strategischer Zielverfolgung.
+Wir haben uns für dieses Modell entschieden, da es flexibel auf verschiedenen Spielsituationen regieren kann und eine dynamische Bewertung erlaubt. Durch die Kombination von Zielverfolgung und Nutzenmaximierung ist der Agent in der Lage sowohl offensiv als auch defensiv zu agieren, was in einem kompetitiven Spielumfeld wie BattleSnake von großem Vorteil ist.
+-----------
+Neben den grundlegenden Konzepten eines ziel- und nutzenbasierten Agenten wurden in unserem Bot zusätzliche Überlegungen und Strategien integriert. Diese helfen uns um Risiken zu vermeiden, die Flexibilität zu erhöhen und die Raumkontrolle strategisch zu nutzen.
+Risikovermeidung
+Unser Bot prüft in jedem potenziellen Zug ob das Ziel: innerhalb des Spielfeldes liegt, von anderen Schlangen belegt ist, an gegnerischen Köpfen angrenzt oder in eine Sackgasse führen würde. 
+Dynamische Modus Wahl
+Unser Bot verwendet ein einfaches Modell zur strategischen Verhaltensumschaltung:
+•	Food_hunter, wenn das Leben niedrig ist oder der Gegner gleich stark ist
+•	Agressive, wenn er überlegen ist und Raumkontrolle hat
+•	Neutral, in sonstigen fällen
+Raumkontrolle mit Voronoi-Strategie
+Durch die Funktion comoute_voroni() wird das Spielfeld in Einflussbereiche aufgeteilt. Diese Information beeinflusst sowohl die Modulauswahl als auch die Bewertung möglicher Züge. Der Raum ist also die Überlebenszeit. Wer mehr Platz kontrolliert, kann flexibler ausweichen, Futter erreichen oder Gegner einkreisen. Die Voronoi-Berechnung liefert dafür eine effektive und dynamische Einschätzung der eigenen Lage.
+Flood-Fill zur Bewegungsfreiheitseinschätzung
+Unser Bot verwendet flood_fill(), um für jeden potenziellen Zug die Anzahl erreichbarer Felder zu berechnen und dadurch Enge zu vermeiden. Durch diese Schätzung wird die Bewertung unterstützt, ob ein Zug in einer langfristigen gefährlichen Position führt. So wird Raum als strategischer Vorteil genutzt.
+----------------
