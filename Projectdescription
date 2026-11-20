@@ -1,37 +1,37 @@
-Unser Bot basiert auf einem ziel- und nutzenbasierten, modellbasierten Agentenmodell.
-Die zentrale Agentenfunktion ist die Methode choose_move() der Klasse VoronoiAgent. Sie wird über die Funktion move() aufgerufen und entscheidet auf Grundlage des aktuellen Spielzustands (game_state), welcher Zug ausgeführt werden soll.
-Der Bot verwendet ein internes Weltmodell, das aus dem übergebenen Spielstatus (board, you, enemy usw.) erzeugt wird. Auf Basis dieses Modells wählt der Bot eine situationsabhängige Zielstrategie: Futter aufsuchen (food_hunter), den Gegner angreifen (aggressive) oder neutral überleben (neutral).
-Um das jeweils geeignetste Zielverhalten zu bestimmen und die möglichen Züge zu bewerten, kommen Bewertungsfunktionen zum Einsatz: Der freie Raum wird mit einem Flood-Fill-Algorithmus (flood_fill()) geschätzt, und mithilfe der Funktion compute_voronoi() wird die Kontrolle über den Raum im Vergleich zum Gegner analysiert. So erhält jeder mögliche Zug eine Nutzenbewertung, wodurch sich der Agent als nutzenbasiert klassifizieren lässt.
+Our bot is based on a goal-based and utility-based, model-based agent architecture.
+The central agent function is the method choose_move() of the class VoronoiAgent. It is called via the function move() and decides, based on the current game state (game_state), which move to make.
+The bot uses an internal world model that is built from the game state it receives (board, you, enemy, etc.). Based on this model, the bot chooses a situation-dependent goal strategy: looking for food (food_hunter), attacking the opponent (aggressive) or surviving neutrally (neutral).
+To determine the most suitable goal behaviour and to evaluate the possible moves, the bot uses evaluation functions: the free space is estimated with a flood-fill algorithm (flood_fill()), and the function compute_voronoi() analyses the control of space compared to the opponent. This way every possible move receives a utility score, which is why the agent can be classified as utility-based.
 
-Die Entscheidung basiert nicht nur auf dem aktuellen Percept, sondern auch auf einer internen Repräsentation der Umwelt. Daher handelt es sich nicht um einen einfachen Reflexagenten, sondern um einen modellbasierten Agenten mit strategischer Zielverfolgung.
-Wir haben uns für dieses Modell entschieden, da es flexibel auf verschiedene Spielsituationen reagieren kann und eine dynamische Bewertung erlaubt. Durch die Kombination von Zielverfolgung und Nutzenmaximierung kann der Agent sowohl offensiv als auch defensiv agieren, was in einem kompetitiven Spielumfeld wie Battlesnake von großem Vorteil ist.
+The decision is not based only on the current percept, but also on an internal representation of the environment. Therefore it is not a simple reflex agent, but a model-based agent with strategic goal pursuit.
+We chose this model because it can react flexibly to different game situations and allows a dynamic evaluation. By combining goal pursuit and utility maximisation, the agent is able to act both offensively and defensively, which is a major advantage in a competitive environment like Battlesnake.
 -----------
-Neben den grundlegenden Konzepten eines ziel- und nutzenbasierten Agenten haben wir in unseren Bot zusätzliche Überlegungen und Strategien integriert. Diese helfen uns, Risiken zu vermeiden, die Flexibilität zu erhöhen und die Raumkontrolle strategisch zu nutzen.
+In addition to the basic concepts of a goal-based and utility-based agent, we integrated further considerations and strategies into our bot. They help us to avoid risks, increase flexibility and use space control strategically.
 
-Risikovermeidung
-Unser Bot prüft für jeden potenziellen Zug, ob das Zielfeld
-•	innerhalb des Spielfeldes liegt,
-•	von einer Schlange belegt ist (das eigene Schwanzende zählt als frei, sofern in diesem Zug kein Futter gefressen wird),
-•	in eine Sackgasse führt (detect_dead_end()). Ein solcher Zug wird nur verworfen, wenn von dort aus auch das eigene Schwanzende nicht erreichbar ist (is_tail_reachable()).
-Züge, die diese Prüfungen bestehen, gelten als sichere Züge. Bleibt nur ein sicherer Zug übrig, wird dieser direkt ausgeführt. Gibt es keinen sicheren Zug mehr, wählt der Bot zufällig eine Richtung.
+Risk avoidance
+For every potential move, our bot checks whether the target cell
+•	is inside the board,
+•	is occupied by a snake (our own tail counts as free, unless food is eaten in this move),
+•	leads into a dead end (detect_dead_end()). Such a move is only discarded if our own tail cannot be reached from there either (is_tail_reachable()).
+Moves that pass these checks are considered safe moves. If only one safe move is left, it is executed directly. If there is no safe move left, the bot chooses a random direction.
 
-Dynamische Moduswahl
-Unser Bot verwendet ein einfaches Regelmodell zur strategischen Verhaltensumschaltung:
-•	food_hunter, wenn die eigene Gesundheit unter 40 liegt oder die eigene Schlange nicht länger ist als der Gegner
-•	aggressive, wenn die eigene Schlange mindestens 2 Felder länger ist als der Gegner, die Gesundheit mindestens 50 beträgt und der Bot laut Voronoi-Berechnung mindestens so viel Raum kontrolliert wie der Gegner
-•	neutral in allen sonstigen Fällen
+Dynamic mode selection
+Our bot uses a simple rule-based model to switch its strategic behaviour:
+•	food_hunter, if its health is below 40 or our snake is not longer than the opponent
+•	aggressive, if our snake is at least 2 cells longer than the opponent, its health is at least 50 and, according to the Voronoi calculation, the bot controls at least as much space as the opponent
+•	neutral in all other cases
 
-Bewertung der Züge je Modus
-•	food_hunter: Nähe zum nächsten Futter (closest_food_distance()) plus freier Raum aus dem Flood-Fill
-•	aggressive: eigener freier Raum (doppelt gewichtet) minus Raum des Gegners (dreifach gewichtet), plus Voronoi-Vorsprung nach dem Zug; ein Zug neben den Kopf einer kürzeren gegnerischen Schlange wird mit +1000 belohnt
-•	neutral: freier Raum aus dem Flood-Fill plus aktueller Voronoi-Vorsprung
-Am Ende wird der Zug mit der höchsten Bewertung ausgeführt.
+Move evaluation per mode
+•	food_hunter: proximity to the nearest food (closest_food_distance()) plus free space from the flood fill
+•	aggressive: own free space (weighted twice) minus the opponent's space (weighted three times), plus the Voronoi advantage after the move; a move next to the head of a shorter opponent is rewarded with +1000
+•	neutral: free space from the flood fill plus the current Voronoi advantage
+Finally, the move with the highest score is executed.
 
-Raumkontrolle mit Voronoi-Strategie
-Durch die Funktion compute_voronoi() wird das Spielfeld per gleichzeitiger Breitensuche von beiden Köpfen aus in Einflussbereiche aufgeteilt. Felder, die von beiden Schlangen erreicht werden, zählen als neutral. Diese Information beeinflusst sowohl die Moduswahl als auch die Bewertung möglicher Züge. Raum bedeutet Überlebenszeit: Wer mehr Platz kontrolliert, kann flexibler ausweichen, Futter erreichen oder Gegner einkreisen. Die Voronoi-Berechnung liefert dafür eine effektive und dynamische Einschätzung der eigenen Lage.
+Space control with a Voronoi strategy
+The function compute_voronoi() divides the board into areas of influence using a simultaneous breadth-first search from both heads. Cells reached by both snakes count as neutral. This information influences both the mode selection and the evaluation of possible moves. Space means survival time: whoever controls more space can dodge more flexibly, reach food or trap the opponent. The Voronoi calculation provides an effective and dynamic assessment of the bot's own position.
 
-Flood-Fill zur Einschätzung der Bewegungsfreiheit
-Unser Bot verwendet flood_fill(), um für jeden potenziellen Zug die Anzahl erreichbarer Felder (begrenzt auf 50) sowie deren Qualität (Anzahl freier Nachbarfelder) zu berechnen und so Engstellen zu vermeiden. Diese Schätzung hilft bei der Bewertung, ob ein Zug in eine langfristig gefährliche Position führt. So wird Raum als strategischer Vorteil genutzt.
+Flood fill to estimate freedom of movement
+Our bot uses flood_fill() to calculate, for every potential move, the number of reachable cells (limited to 50) and their quality (number of free neighbouring cells), in order to avoid tight spaces. This estimate helps to judge whether a move leads into a position that is dangerous in the long run. This way, space is used as a strategic advantage.
 
-Hinweis: Der Bot ist für Duelle gegen genau einen Gegner ausgelegt (1 gegen 1).
+Note: The bot is designed for duels against exactly one opponent (1 vs 1).
 ----------------
